@@ -23,7 +23,7 @@ enum VerticalMatcher {
         let width = a.width, height = a.height
         let limit = Int(Double(height) * 0.65)
         func score(_ shift: Int) -> (Double, Int) {
-            let first = max(1, -shift), last = min(height - 1, height - shift)
+            let first = max(1, 1 - shift), last = min(height - 1, height - shift)
             guard first < last else { return (.infinity, 0) }
             var error = 0, samples = 0
             for y in stride(from: first, to: last, by: 2) {
@@ -66,7 +66,7 @@ enum VerticalMatcher {
         let lo = max(1 - height, estimate - radius), hi = min(height - 1, estimate + radius)
         guard lo <= hi else { return MatchResult(shift: 0, error: .infinity, valid: false) }
         for shift in lo...hi {
-            let first = max(1, -shift), last = min(height - 1, height - shift)
+            let first = max(1, 1 - shift), last = min(height - 1, height - shift)
             guard first < last else { continue }
             var sum = 0, count = 0
             for y in stride(from: first, to: last, by: 4) {
