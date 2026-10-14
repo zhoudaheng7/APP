@@ -4,7 +4,11 @@
 
 ## 当前验证状态
 
-本项目是未编译的原生原型，不能把这个源码包当作安装包。已完成项目 YAML 和工作流配置检查、Python 打包脚本语法检查，验证打包器会拒绝未编译的输入。尚未执行 Xcode 编译、Swift 单元测试或 iPhone 实机测试。尚未生成 IPA，也未完成 IPA 签名。不要声称已验证完整功能。
+2026-10-14 已在 GitHub Actions 云端 Mac 完成构建：7 项核心 XCTest 全部通过；iPhone 主 App 与录屏扩展的 Release 设备编译成功；已生成真实的 `ScrollShot-unsigned.ipa`。构建记录：[Build iPhone IPA #3](https://github.com/zhoudaheng7/APP/actions/runs/38539663550)，代码提交 `bb80dcfcfa415ae2c0b81b929c9d0a0b529640d4`。
+
+下载后也检查了 ZIP 完整性、主 App 和 Broadcast 扩展的真实 arm64 Mach-O 可执行文件、iPhoneOS 平台标识和 URL Scheme。IPA 尚未完成设备签名，不含 provisioning profile；需要在 Windows 用自己的 Apple 账号签名安装。`.shortcut` 入口另行提供已签名文件。
+
+第一轮 iOS 模拟器测试找出了负位移搜索的数组越界，已经修复。第二轮模拟器运行等待较长，最终验证改为在 macOS 直接运行同一组核心 XCTest，保留了 iPhone 设备编译检查；没有声称 iOS 模拟器测试成功。尚未完成 iPhone 实机录屏、签名兼容性、权限或自动保存测试。
 
 特别需要实机验证：
 
@@ -23,7 +27,8 @@
 - `Shared/`：垂直位移匹配、细化接缝、按新增区域存储片段、生成 PNG、PhotoKit 保存。
 - `Tests/`：已知位移、噪声、无关内容、像素方向、回滚去重及长度上限的 XCTest。
 - `project.yml`：XcodeGen 工程定义，无 App Groups 或其他付费开发者特有服务依赖。
-- `.github/workflows/build-ios.yml`：GitHub Actions 云端 Mac 编译、模拟器单元测试、生成未签名设备 IPA。
+- `Package.swift`：让同一组拼接引擎测试直接在云端 macOS 执行。
+- `.github/workflows/build-ios.yml`：GitHub Actions 核心单元测试、iPhone 设备编译、生成未签名设备 IPA。
 
 ## 没有本地 Mac 时的编译路线
 
