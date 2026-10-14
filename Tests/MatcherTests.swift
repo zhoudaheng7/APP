@@ -1,6 +1,10 @@
 import XCTest
 import CoreGraphics
+#if canImport(ScrollShotCore)
+@testable import ScrollShotCore
+#else
 @testable import ScrollShot
+#endif
 
 final class MatcherTests: XCTestCase {
     private func page(width: Int = 64, height: Int = 600) -> [UInt8] {

@@ -9,6 +9,7 @@ on:
       - 'Shared/**'
       - 'Tests/**'
       - 'project.yml'
+      - 'Package.swift'
       - 'scripts/**'
       - '.github/workflows/build-ios.yml'
 permissions:
@@ -29,26 +30,11 @@ jobs:
         run: brew install xcodegen
       - name: Generate Xcode project
         run: xcodegen generate
-      - name: Select available iPhone simulator
-        id: simulator
-        run: |
-          xcrun simctl list devices available --json > /tmp/scrollshot-simulators.json
-          python3 - <<'PY' >> "$GITHUB_OUTPUT"
-          import json
-          data=json.load(open('/tmp/scrollshot-simulators.json'))
-          phones=[d for devices in data['devices'].values() for d in devices
-                  if d.get('isAvailable') and d['name'].startswith('iPhone')]
-          if not phones: raise SystemExit('No available iPhone simulator')
-          print('id='+phones[0]['udid'])
-          PY
       - name: Verify matcher and stitching
         run: |
           set -o pipefail
           mkdir -p output
-          xcodebuild test -project ScrollShot.xcodeproj -scheme ScrollShot \
-            -destination 'platform=iOS Simulator,id=${{ steps.simulator.outputs.id }}' \
-            -derivedDataPath build/tests -resultBundlePath output/Tests.xcresult \
-            CODE_SIGNING_ALLOWED=NO | tee test.log
+          swift test | tee test.log
       - name: Build app and recording extension for iPhone
         run: |
           set -o pipefail
@@ -64,7 +50,6 @@ jobs:
           name: ScrollShot-iPhone
           path: |
             output/ScrollShot-unsigned.ipa
-            output/Tests.xcresult
             test.log
             build.log
           if-no-files-found: error
