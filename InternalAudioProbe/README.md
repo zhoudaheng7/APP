@@ -1,4 +1,16 @@
-# 内录验证 0.2.0 · iPhone iOS 27
+# 内录验证 0.3.0 · iPhone iOS 27
+
+## 0.3.0 紧凑界面与拖动
+
+首页合并录音/教程区域，开始按钮文字居中；午夜蓝底色配青绿点缀，与原图标统一。正常录音采用一行标题/日期/状态、紧凑音轨/时长/大小和一行检查/导出/删除，完整检查详情可点开。
+
+原生 UISlider 触摸期间只预览位置，放手才提交一次定位；原先播放的音频会恢复。VoiceOver 离散调节也可定位。当前可见音轨的 CADisplayLink 更新 UILabel/滑块/图层遮罩，不再将时间广播到整个 SwiftUI 列表。波形几何缓存，后台串行解码并缓存24条；列表文件信息在刷新时获取，不在逐帧渲染里扫描磁盘。后台、暂停及移出窗口时停止显示链。
+
+主 App 开启 CADisableMinimumFrameDurationOnPhone，并按屏幕 maximumFramesPerSecond 设置 preferredFrameRateRange。系统仍根据电量/温度/用户设置决定实际刷新率，不声称真机恒定满帧。UIProbe 仅在 CI 专用启动参数下记录回调频率、定位提交数、波形构建数，不进入正常用户界面，不代表真机 FPS。
+
+Apple 官方参考：
+- https://developer.apple.com/documentation/bundleresources/information-property-list/cadisableminimumframedurationonphone
+- https://developer.apple.com/documentation/quartzcore/cadisplaylink/preferredframeraterange
 
 验证目标：在用户主动通过苹果系统选择器授权后，采集其他 App 可提供的内部音频，直接写为 AAC/M4A；不保存视频、截图或麦克风音频。无账号、网络上传、转写模型或第三方运行时依赖。0.2.0 增加新图标、仅音频导出和控制中心 Broadcast Upload Extension；新入口需要签名时保留扩展及 App Groups，尚待真机验证。
 

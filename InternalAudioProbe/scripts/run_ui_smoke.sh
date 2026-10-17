@@ -4,6 +4,9 @@ export_ui_attachments() {
   if [ -d dist/Interaction.xcresult ]; then
     xcrun xcresulttool export attachments --path dist/Interaction.xcresult --output-path dist/UIAttachments || true
   fi
+  if [ -n "${APP_DATA:-}" ] && [ -f "$APP_DATA/Documents/UIProbe.json" ]; then
+    cp "$APP_DATA/Documents/UIProbe.json" dist/UIProbe.json
+  fi
 }
 trap export_ui_attachments EXIT
 DEVICE=$(python3 - <<'PY'
@@ -25,4 +28,6 @@ python3 scripts/install_ui_fixture.py "$APP_DATA/Documents"
 xcodebuild test-without-building -project InternalAudioProbe.xcodeproj -scheme InternalAudioProbe \
   -destination "platform=iOS Simulator,id=$DEVICE" -derivedDataPath build/simulator \
   -parallel-testing-enabled NO -resultBundlePath dist/Interaction.xcresult \
+  -collect-test-diagnostics never -test-timeouts-enabled YES \
+  -default-test-execution-time-allowance 180 -maximum-test-execution-time-allowance 240 \
   CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO 2>&1 | tee dist/ui-tests.log

@@ -6,12 +6,14 @@ import Foundation
 final class PlaybackController: NSObject, ObservableObject {
     @Published var currentURL: URL?
     @Published var isPlaying = false
-    @Published var currentTime: Double = 0
+    // Read by the visible UIKit timeline; never publish a frame tick to the recording list.
+    var currentTime: Double { finished ? duration : player?.currentTime ?? 0 }
     @Published var duration: Double = 0
     @Published var finished = false
     @Published var error: String?
     private var player: AVAudioPlayer?
-    private var timer: Timer?
+    private var resumeAfterScrub = false
+    private(set) var seekCommitCount = 0
 
     func toggle(_ url: URL) {
         do {
@@ -20,13 +22,11 @@ final class PlaybackController: NSObject, ObservableObject {
             if isPlaying {
                 player.pause()
                 isPlaying = false
-                timer?.invalidate()
             } else {
-                if finished { player.currentTime = 0; currentTime = 0 }
+                if finished { player.currentTime = 0 }
                 guard player.play() else { throw PlaybackFailure.cannotPlay }
                 isPlaying = true
                 finished = false
-                startTimer()
             }
             error = nil
         } catch { self.error = "播放失败：\(error.localizedDescription)" }
@@ -36,21 +36,31 @@ final class PlaybackController: NSObject, ObservableObject {
         do {
             try prepare(url)
             player?.currentTime = min(max(0, seconds), duration)
-            currentTime = player?.currentTime ?? 0
             finished = false
+            seekCommitCount += 1
+            if resumeAfterScrub { isPlaying = player?.play() == true }
+            resumeAfterScrub = false
         } catch { self.error = "定位失败：\(error.localizedDescription)" }
     }
 
+    func beginScrubbing(_ url: URL) {
+        resumeAfterScrub = currentURL == url && isPlaying
+        if resumeAfterScrub { player?.pause() }
+    }
+
+    func cancelScrubbing() {
+        if resumeAfterScrub { isPlaying = player?.play() == true }
+        resumeAfterScrub = false
+    }
+
     func stop() {
-        timer?.invalidate()
-        timer = nil
         player?.stop()
         player = nil
         currentURL = nil
         isPlaying = false
-        currentTime = 0
         duration = 0
         finished = false
+        resumeAfterScrub = false
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 
@@ -67,28 +77,14 @@ final class PlaybackController: NSObject, ObservableObject {
         duration = audio.duration
     }
 
-    private func startTimer() {
-        timer?.invalidate()
-        let next = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                guard let self, let player = self.player else { return }
-                self.currentTime = player.currentTime
-                self.isPlaying = player.isPlaying
-            }
-        }
-        RunLoop.main.add(next, forMode: .common)
-        timer = next
-    }
 }
 
 extension PlaybackController: AVAudioPlayerDelegate {
     nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
         Task { @MainActor in
             guard self.player === player else { return }
-            self.timer?.invalidate()
             self.isPlaying = false
             self.finished = true
-            self.currentTime = self.duration
             if !flag { self.error = "播放未正常完成，请检查音频文件。" }
         }
     }
@@ -96,7 +92,7 @@ extension PlaybackController: AVAudioPlayerDelegate {
         let message = error?.localizedDescription ?? "音频解码失败"
         Task { @MainActor in
             guard self.player === player else { return }
-            self.isPlaying = false; self.timer?.invalidate(); self.error = message
+            self.isPlaying = false; self.error = message
         }
     }
 }

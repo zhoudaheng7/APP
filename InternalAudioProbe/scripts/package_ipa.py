@@ -42,6 +42,7 @@ def package(app: Path, destination: Path) -> dict:
     assert 'NSMicrophoneUsageDescription' not in ext_info
     assert (app / 'Assets.car').is_file(), 'Compiled app icon assets missing'
     assert info.get('CFBundleIcons', {}).get('CFBundlePrimaryIcon'), 'Primary icon declaration missing'
+    assert info.get('CADisableMinimumFrameDurationOnPhone') is True, 'High refresh-rate opt-in missing'
     if info.get('CFBundleSupportedPlatforms') != ['iPhoneOS']:
         raise ValueError('Info.plist is not a device build')
     if 'NSMicrophoneUsageDescription' in info:
@@ -65,7 +66,7 @@ def package(app: Path, destination: Path) -> dict:
                     sha256=hashlib.sha256(destination.read_bytes()).hexdigest(), signed=False,
                     microphonePermission=False, backgroundModes=info['UIBackgroundModes'],
                     extension={'bundleIdentifier': ext_info['CFBundleIdentifier'], **ext_binary},
-                    appGroup=info['AudioAppGroupIdentifier'], iconAssets=True)
+                    appGroup=info['AudioAppGroupIdentifier'], iconAssets=True, highRefreshEnabled=True)
     destination.with_suffix('.verification.json').write_text(json.dumps(evidence, indent=2) + '\n', encoding='utf-8')
     return evidence
 

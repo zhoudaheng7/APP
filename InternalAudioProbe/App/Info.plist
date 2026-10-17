@@ -15,6 +15,7 @@
   <key>UIBackgroundModes</key><array><string>screen-capture</string></array>
   <key>AudioAppGroupIdentifier</key><string>$(AUDIO_APP_GROUP)</string>
   <key>UIFileSharingEnabled</key><true/>
+  <key>CADisableMinimumFrameDurationOnPhone</key><true/>
   <key>LSSupportsOpeningDocumentsInPlace</key><true/>
   <key>UILaunchScreen</key><dict/>
   <key>UISupportedInterfaceOrientations</key><array><string>UIInterfaceOrientationPortrait</string><string>UIInterfaceOrientationPortraitUpsideDown</string><string>UIInterfaceOrientationLandscapeLeft</string><string>UIInterfaceOrientationLandscapeRight</string></array>

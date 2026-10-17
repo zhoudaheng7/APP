@@ -280,14 +280,16 @@ struct SavedSession: Identifiable {
     let report: SessionReport
     let folder: URL
     var id: UUID { report.id }
-    var isActive: Bool { RecordingLibrary.isActive(folder: folder) }
-    var audioBytes: Int64 {
-        audioFiles.reduce(0) { total, file in
-            total + Int64((try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
-        }
-    }
-    var audioFiles: [URL] {
-        RecordingFiles.audioForExport(report: report, folder: folder)
+    let isActive: Bool
+    let audioFiles: [URL]
+    let audioBytes: Int64
+    init(report: SessionReport, folder: URL) {
+        self.report = report
+        self.folder = folder
+        isActive = RecordingLibrary.isActive(folder: folder)
+        let files = RecordingFiles.audioForExport(report: report, folder: folder)
+        audioFiles = files
+        audioBytes = files.reduce(0) { $0 + Int64((try? $1.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0) }
     }
     var exportFiles: [URL] {
         audioFiles
