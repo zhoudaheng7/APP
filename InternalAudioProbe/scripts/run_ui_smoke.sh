@@ -4,8 +4,11 @@ export_ui_attachments() {
   if [ -d dist/Interaction.xcresult ]; then
     xcrun xcresulttool export attachments --path dist/Interaction.xcresult --output-path dist/UIAttachments || true
   fi
-  if [ -n "${APP_DATA:-}" ] && [ -f "$APP_DATA/Documents/UIProbe.json" ]; then
-    cp "$APP_DATA/Documents/UIProbe.json" dist/UIProbe.json
+  if [ -n "${DEVICE:-}" ]; then
+    FINAL_APP_DATA=$(xcrun simctl get_app_container "$DEVICE" com.lightsquare.internalaudioprobe data 2>/dev/null || true)
+    if [ -n "$FINAL_APP_DATA" ] && [ -f "$FINAL_APP_DATA/Documents/UIProbe.json" ]; then
+      cp "$FINAL_APP_DATA/Documents/UIProbe.json" dist/UIProbe.json
+    fi
   fi
 }
 trap export_ui_attachments EXIT

@@ -53,6 +53,12 @@ final class PlaybackController: NSObject, ObservableObject {
         resumeAfterScrub = false
     }
 
+    func synchronizePlaybackState() {
+        guard !resumeAfterScrub, let player, isPlaying != player.isPlaying else { return }
+        // An interruption can pause AVAudioPlayer without its finish delegate firing.
+        isPlaying = player.isPlaying
+    }
+
     func stop() {
         player?.stop()
         player = nil

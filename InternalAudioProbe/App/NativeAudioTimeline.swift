@@ -43,6 +43,7 @@ final class AudioTimelineView: UIView {
     private var lastTimestamp: Double = 0
     private var geometryBuilds = 0
     private var requestedHz = 60
+    private var gestureEvents: [String] = []
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -75,10 +76,10 @@ final class AudioTimelineView: UIView {
         slider.accessibilityLabel = "播放进度，可拖动定位"
         slider.accessibilityIdentifier = "audio-progress"
         slider.accessibilityHint = "拖动预览位置，松手后定位音频"
-        slider.addTarget(self, action: #selector(beginDrag), for: .touchDown)
+        slider.onBegin = { [weak self] in self?.beginDrag() }
+        slider.onEnd = { [weak self] in self?.endDrag() }
+        slider.onCancel = { [weak self] in self?.cancelDrag() }
         slider.addTarget(self, action: #selector(changeValue), for: .valueChanged)
-        slider.addTarget(self, action: #selector(endDrag), for: [.touchUpInside, .touchUpOutside])
-        slider.addTarget(self, action: #selector(cancelDrag), for: .touchCancel)
         addSubview(slider)
         NotificationCenter.default.addObserver(self, selector: #selector(updateLink),
             name: UIApplication.didEnterBackgroundNotification, object: nil)
@@ -153,7 +154,10 @@ final class AudioTimelineView: UIView {
             if lastTimestamp > 0 { frameSeconds += link.timestamp - lastTimestamp; frameCount += 1 }
             lastTimestamp = link.timestamp
         }
-        if !dragging { render(at: playback?.currentTime ?? 0, updateSlider: true) }
+        if !dragging {
+            playback?.synchronizePlaybackState()
+            render(at: playback?.currentTime ?? 0, updateSlider: true)
+        }
     }
 
     private func render(at seconds: Double, updateSlider: Bool) {
@@ -179,20 +183,23 @@ final class AudioTimelineView: UIView {
 
     @objc private func beginDrag() {
         guard !dragging, let file else { return }
+        recordProbeEvent("begin")
         dragging = true
         playback?.beginScrubbing(file)
         updateLink()
     }
     @objc private func changeValue() {
+        recordProbeEvent("value")
         render(at: Double(slider.value), updateSlider: false)
         // VoiceOver's discrete adjustments have no touch-up event.
-        if !slider.isTracking && !dragging, let file {
+        if !slider.trackingGesture && !dragging, let file {
             playback?.seek(file, to: Double(slider.value))
             saveProbe()
         }
     }
     @objc private func endDrag() {
         guard dragging, let file else { return }
+        recordProbeEvent("end")
         let target = Double(slider.value)
         dragging = false
         playback?.seek(file, to: target)
@@ -211,10 +218,16 @@ final class AudioTimelineView: UIView {
         let metrics: [String: Any] = ["requestedHz": requestedHz, "frameSamples": frameCount,
             "observedCallbackHz": frameSeconds > 0 ? Double(frameCount) / frameSeconds : 0,
             "waveformGeometryBuilds": geometryBuilds, "seekCommits": playback?.seekCommitCount ?? 0,
-            "updatesSwiftUIOnEveryFrame": false, "nativeDeviceFPSVerified": false]
+            "updatesSwiftUIOnEveryFrame": false, "nativeDeviceFPSVerified": false,
+            "gestureEvents": gestureEvents]
         let root = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         try? JSONSerialization.data(withJSONObject: metrics, options: [.prettyPrinted, .sortedKeys])
             .write(to: root.appendingPathComponent("UIProbe.json"), options: .atomic)
+    }
+    private func recordProbeEvent(_ event: String) {
+        guard probe else { return }
+        if gestureEvents.count >= 32 { gestureEvents.removeFirst() }
+        gestureEvents.append("\(event): touch=\(slider.trackingGesture), tracking=\(slider.isTracking), dragging=\(dragging), seeks=\(playback?.seekCommitCount ?? 0)")
     }
     private static func clock(_ value: Double) -> String {
         let seconds = max(0, Int(value.isFinite ? value : 0))
@@ -224,6 +237,38 @@ final class AudioTimelineView: UIView {
 }
 
 private final class AudioScrubSlider: UISlider {
+    var onBegin: (() -> Void)?
+    var onEnd: (() -> Void)?
+    var onCancel: (() -> Void)?
+    private(set) var trackingGesture = false
+    private var generation = 0
+
+    override func beginTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {
+        generation += 1
+        trackingGesture = true
+        let accepted = super.beginTracking(touch, with: event)
+        if accepted { onBegin?() } else { trackingGesture = false }
+        return accepted
+    }
+    override func endTracking(_ touch: UITouch?, with event: UIEvent?) {
+        super.endTracking(touch, with: event)
+        onEnd?()
+        finishEventBatch()
+    }
+    override func cancelTracking(with event: UIEvent?) {
+        super.cancelTracking(with: event)
+        onCancel?()
+        finishEventBatch()
+    }
+    private func finishEventBatch() {
+        // UIKit can deliver a final valueChanged after tracking becomes false. Keep the
+        // touch transaction open until that event batch ends, so it isn't treated as VoiceOver.
+        let completedGeneration = generation
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.generation == completedGeneration else { return }
+            self.trackingGesture = false
+        }
+    }
     override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
         bounds.insetBy(dx: -4, dy: -8).contains(point)
     }
