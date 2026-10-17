@@ -34,6 +34,7 @@ final class RecordingInteractionTests: XCTestCase {
         app.buttons["recording-help"].tap()
         XCTAssertTrue(app.staticTexts["从控制中心开始"].waitForExistence(timeout: 3))
         app.buttons["知道了"].tap()
+        XCTAssertFalse(app.navigationBars["选择录音"].waitForExistence(timeout: 1), "Help must not also activate the quick-menu button in the same List row")
         let check = app.buttons["检查音轨"].firstMatch
         reveal(check, in: app)
         XCTAssertLessThan(app.otherElements["recording-card"].firstMatch.frame.height, 170)

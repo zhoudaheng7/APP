@@ -305,17 +305,15 @@ final class CaptureController: NSObject, ObservableObject {
         let chosen = sessions.filter { ids.contains($0.id) }
         var roots = [root]
         if let shared = RecordingPaths.sharedRoot { roots.append(shared) }
-        var deleted = 0
         var failures: [String] = []
         for session in chosen {
             do {
                 try RecordingLibrary.deleteSession(folder: session.folder, allowedRoots: roots)
-                deleted += 1
                 checks.removeValue(forKey: session.id)
             } catch { failures.append(error.localizedDescription) }
         }
         refreshSessions()
-        libraryMessage = failures.isEmpty ? "已删除 \(deleted) 条录音。" : "已删除 \(deleted) 条；\(failures.joined(separator: "；"))"
+        libraryMessage = failures.isEmpty ? "" : "部分录音删除失败：\(failures.joined(separator: "；"))"
     }
 }
 

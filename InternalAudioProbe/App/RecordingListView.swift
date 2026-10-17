@@ -132,6 +132,8 @@ struct RecorderView: View {
                 .font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1).minimumScaleFactor(0.85)
         }
         .recorderCard()
+        // Multiple automatic Buttons inside one List row otherwise activate together.
+        .buttonStyle(.borderless)
         .accessibilityElement(children: .contain).accessibilityIdentifier("capture-panel")
     }
 
