@@ -6,7 +6,9 @@ import UIKit
 struct NativeAudioTimeline: UIViewRepresentable {
     let file: URL
     let waveform: AudioWaveform
-    let playback: PlaybackController
+    // Observe transport changes here: the controller reference itself stays identical when
+    // play/pause changes, so a plain let can leave updateUIView and the display link dormant.
+    @ObservedObject var playback: PlaybackController
     let enabled: Bool
     let showFilename: Bool
 

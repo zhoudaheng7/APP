@@ -25,10 +25,41 @@ final class RecordingInteractionTests: XCTestCase {
         reveal(play, in: app)
         XCTAssertTrue(app.staticTexts["audio-file-size"].firstMatch.exists)
         XCTAssertTrue(app.staticTexts["waveform-drag-hint"].firstMatch.exists)
+        let slider = app.descendants(matching: .any)["audio-progress"].firstMatch
+        let clock = app.staticTexts["playback-time"].firstMatch
+        XCTAssertTrue(slider.exists)
+        let initialSecond = elapsedSeconds(clock)
+        let initialPercent = progressPercent(slider)
         play.tap()
         XCTAssertTrue(app.staticTexts["正在播放"].firstMatch.waitForExistence(timeout: 3))
-        let slider = app.descendants(matching: .any)["audio-progress"].firstMatch
-        XCTAssertTrue(slider.exists)
+        // No waveform touches or seeks: both the clock and the actual rendered cursor
+        // must advance on the very first play, rather than being woken by a drag.
+        expectation(for: NSPredicate { _, _ in
+            self.elapsedSeconds(clock) >= initialSecond + 3 && self.progressPercent(slider) > initialPercent
+        }, evaluatedWith: slider)
+        waitForExpectations(timeout: 12)
+        XCTAssertTrue((slider.value as? String ?? "").contains("定位提交 0"))
+        print("AUTOPLAY_METRICS firstPlayTime=\(clock.label) progress=\(slider.value ?? "")")
+        snapshot(app, "first-play-progress-without-touch")
+        app.buttons["暂停"].firstMatch.tap()
+        XCTAssertTrue(app.staticTexts["已暂停"].firstMatch.waitForExistence(timeout: 2))
+        let pausedClock = clock.label
+        let pausedProgress = slider.value as? String
+        let changedWhilePaused = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            clock.label != pausedClock || (slider.value as? String) != pausedProgress
+        }, object: clock)
+        changedWhilePaused.isInverted = true
+        XCTAssertEqual(XCTWaiter.wait(for: [changedWhilePaused], timeout: 2), .completed)
+        let pausedSecond = elapsedSeconds(clock)
+        let pausedPercent = progressPercent(slider)
+        app.buttons["播放"].firstMatch.tap()
+        XCTAssertTrue(app.staticTexts["正在播放"].firstMatch.waitForExistence(timeout: 3))
+        expectation(for: NSPredicate { _, _ in
+            self.elapsedSeconds(clock) >= pausedSecond + 3 && self.progressPercent(slider) > pausedPercent
+        }, evaluatedWith: slider)
+        waitForExpectations(timeout: 12)
+        XCTAssertTrue((slider.value as? String ?? "").contains("定位提交 0"))
+        print("AUTOPLAY_METRICS resumeTime=\(clock.label) progress=\(slider.value ?? "")")
         let value = slider.value as? String ?? "0%"
         let percent = Double(value.components(separatedBy: "%")[0]) ?? 0
         let thumb = (9 + (slider.frame.width - 18) * percent / 100) / slider.frame.width
@@ -62,6 +93,13 @@ final class RecordingInteractionTests: XCTestCase {
         let final = finalTime.components(separatedBy: " / ")[0].split(separator: ":").compactMap { Int($0) }
         XCTAssertGreaterThan((final.first ?? 0) * 60 + (final.last ?? 0), 45)
         XCTAssertEqual(finalTime.components(separatedBy: " / ").last, time.components(separatedBy: " / ").last)
+    }
+    private func elapsedSeconds(_ clock: XCUIElement) -> Int {
+        clock.label.components(separatedBy: " / ")[0].split(separator: ":")
+            .reduce(0) { $0 * 60 + (Int($1) ?? 0) }
+    }
+    private func progressPercent(_ slider: XCUIElement) -> Double {
+        Double((slider.value as? String ?? "0%").components(separatedBy: "%")[0]) ?? 0
     }
     private func snapshot(_ app: XCUIApplication, _ name: String) {
         let attachment = XCTAttachment(screenshot: app.screenshot())
