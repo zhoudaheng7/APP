@@ -1,5 +1,11 @@
 #!/bin/bash
 set -euo pipefail
+export_ui_attachments() {
+  if [ -d dist/Interaction.xcresult ]; then
+    xcrun xcresulttool export attachments --path dist/Interaction.xcresult --output-path dist/UIAttachments || true
+  fi
+}
+trap export_ui_attachments EXIT
 DEVICE=$(python3 - <<'PY'
 import json, subprocess
 inventory=json.loads(subprocess.check_output(['xcrun','simctl','list','devices','available','--json']))
@@ -20,4 +26,3 @@ xcodebuild test-without-building -project InternalAudioProbe.xcodeproj -scheme I
   -destination "platform=iOS Simulator,id=$DEVICE" -derivedDataPath build/simulator \
   -parallel-testing-enabled NO -resultBundlePath dist/Interaction.xcresult \
   CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO 2>&1 | tee dist/ui-tests.log
-xcrun xcresulttool export attachments --path dist/Interaction.xcresult --output-path dist/UIAttachments || true

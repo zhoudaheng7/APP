@@ -1,7 +1,9 @@
 import AudioCore
 import AVFoundation
 import Combine
+#if canImport(ScreenCaptureKit)
 import ScreenCaptureKit
+#endif
 import SwiftUI
 
 @MainActor
@@ -17,10 +19,12 @@ final class CaptureController: NSObject, ObservableObject {
     @Published var libraryWorking = false
     @Published var libraryMessage = ""
     @Published var externalRecording = false
+    private var writer: AudioSegmentWriter?
+#if canImport(ScreenCaptureKit)
     private var stream: SCStream?
     private var sink: AudioSink?
-    private var writer: AudioSegmentWriter?
     private var ownsPicker = false
+#endif
     private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
     let root: URL
 
@@ -33,6 +37,7 @@ final class CaptureController: NSObject, ObservableObject {
 
     func start() {
         guard phase == .idle, !libraryWorking, !externalRecording else { return }
+#if canImport(ScreenCaptureKit)
         let picker = SCContentSharingPicker.shared
         guard picker.isAvailable else { status = "当前设备无法打开系统采集选择器。"; return }
         guard !picker.isActive else { status = "已有其他屏幕采集正在使用选择器，请先停止。"; return }
@@ -47,8 +52,12 @@ final class CaptureController: NSObject, ObservableObject {
         ownsPicker = true
         picker.isActive = true
         picker.present()
+#else
+        status = "模拟器不支持系统内录；请在 iPhone 真机录音。这里可验证录音库与播放界面。"
+#endif
     }
 
+#if canImport(ScreenCaptureKit)
     private func begin(with filter: SCContentFilter) async {
         guard phase == .selecting else { return }
         phase = .starting
@@ -82,21 +91,26 @@ final class CaptureController: NSObject, ObservableObject {
             await stop(reason: "启动失败：\(error.localizedDescription)")
         }
     }
+#endif
 
     func stop(reason: String? = nil) async {
         guard phase != .idle, phase != .stopping else { return }
         phase = .stopping
         status = "正在完成音频分段，请稍候。"
+#if canImport(ScreenCaptureKit)
         releasePicker()
+#endif
         backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "FinalizeAudio") { [weak self] in
             Task { @MainActor in self?.endBackgroundTask() }
         }
+#if canImport(ScreenCaptureKit)
         if let stream {
             // The system Stop button can stop the stream before its delegate runs.
             try? await stream.stopCapture()
         }
         stream = nil
         sink = nil
+#endif
         guard let writer else {
             phase = .idle
             status = reason ?? "已取消。"
@@ -127,12 +141,14 @@ final class CaptureController: NSObject, ObservableObject {
         }
     }
 
+#if canImport(ScreenCaptureKit)
     private func releasePicker() {
         guard ownsPicker else { return }
         ownsPicker = false
         SCContentSharingPicker.shared.remove(self)
         SCContentSharingPicker.shared.isActive = false
     }
+#endif
 
     func refreshSessions() {
         var roots = [root]
@@ -221,6 +237,7 @@ struct AudioCheck {
     let message: String
 }
 
+#if canImport(ScreenCaptureKit)
 extension CaptureController: SCContentSharingPickerObserver {
     nonisolated func contentSharingPicker(_ picker: SCContentSharingPicker, didUpdateWith filter: SCContentFilter, for stream: SCStream?) {
         Task { @MainActor in await self.begin(with: filter) }
@@ -257,6 +274,7 @@ private final class AudioSink: NSObject, SCStreamOutput, SCStreamDelegate, @unch
         }
     }
 }
+#endif
 
 struct SavedSession: Identifiable {
     let report: SessionReport
