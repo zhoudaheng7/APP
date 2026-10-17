@@ -34,10 +34,7 @@ final class RecordingInteractionTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["正在播放"].firstMatch.waitForExistence(timeout: 3))
         // No waveform touches or seeks: both the clock and the actual rendered cursor
         // must advance on the very first play, rather than being woken by a drag.
-        expectation(for: NSPredicate { _, _ in
-            self.elapsedSeconds(clock) >= initialSecond + 3 && self.progressPercent(slider) > initialPercent
-        }, evaluatedWith: slider)
-        waitForExpectations(timeout: 12)
+        assertProgressAdvances(in: app, after: initialSecond, percent: initialPercent)
         XCTAssertTrue((slider.value as? String ?? "").contains("定位提交 0"))
         print("AUTOPLAY_METRICS firstPlayTime=\(clock.label) progress=\(slider.value ?? "")")
         snapshot(app, "first-play-progress-without-touch")
@@ -46,18 +43,16 @@ final class RecordingInteractionTests: XCTestCase {
         let pausedClock = clock.label
         let pausedProgress = slider.value as? String
         let changedWhilePaused = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-            clock.label != pausedClock || (slider.value as? String) != pausedProgress
-        }, object: clock)
+            app.staticTexts["playback-time"].firstMatch.label != pausedClock ||
+                (app.descendants(matching: .any)["audio-progress"].firstMatch.value as? String) != pausedProgress
+        }, object: nil)
         changedWhilePaused.isInverted = true
         XCTAssertEqual(XCTWaiter.wait(for: [changedWhilePaused], timeout: 2), .completed)
         let pausedSecond = elapsedSeconds(clock)
         let pausedPercent = progressPercent(slider)
         app.buttons["播放"].firstMatch.tap()
         XCTAssertTrue(app.staticTexts["正在播放"].firstMatch.waitForExistence(timeout: 3))
-        expectation(for: NSPredicate { _, _ in
-            self.elapsedSeconds(clock) >= pausedSecond + 3 && self.progressPercent(slider) > pausedPercent
-        }, evaluatedWith: slider)
-        waitForExpectations(timeout: 12)
+        assertProgressAdvances(in: app, after: pausedSecond, percent: pausedPercent)
         XCTAssertTrue((slider.value as? String ?? "").contains("定位提交 0"))
         print("AUTOPLAY_METRICS resumeTime=\(clock.label) progress=\(slider.value ?? "")")
         let value = slider.value as? String ?? "0%"
@@ -118,16 +113,25 @@ final class RecordingInteractionTests: XCTestCase {
         let total = clock.label.components(separatedBy: " / ").last
         play.tap()
         XCTAssertTrue(app.staticTexts["正在播放"].firstMatch.waitForExistence(timeout: 3))
-        expectation(for: NSPredicate { _, _ in
-            self.elapsedSeconds(clock) >= middleSecond + 3 && self.progressPercent(slider) > middlePercent
-        }, evaluatedWith: slider)
-        waitForExpectations(timeout: 12)
+        assertProgressAdvances(in: app, after: middleSecond, percent: middlePercent)
         XCTAssertTrue((slider.value as? String ?? "").contains("定位提交 1"))
         XCTAssertEqual(clock.label.components(separatedBy: " / ").last, total)
         print("AUTOPLAY_METRICS seekThenPlayTime=\(clock.label) progress=\(slider.value ?? "")")
         snapshot(app, "play-from-middle-progress-without-more-touch")
         app.buttons["暂停"].firstMatch.tap()
         XCTAssertTrue(app.staticTexts["已暂停"].firstMatch.waitForExistence(timeout: 2))
+    }
+    private func assertProgressAdvances(in app: XCUIApplication, after seconds: Int, percent: Double,
+                                       file: StaticString = #filePath, line: UInt = #line) {
+        // Binding an XCUIElement as a block predicate's object pins its old snapshot.
+        // Re-query both controls on each poll, without a bound accessibility element.
+        let advance = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            let freshClock = app.staticTexts["playback-time"].firstMatch
+            let freshCursor = app.descendants(matching: .any)["audio-progress"].firstMatch
+            return self.elapsedSeconds(freshClock) >= seconds + 3 && self.progressPercent(freshCursor) > percent
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [advance], timeout: 12), .completed,
+                       "Clock and rendered cursor must advance without waveform touches", file: file, line: line)
     }
     private func elapsedSeconds(_ clock: XCUIElement) -> Int {
         clock.label.components(separatedBy: " / ")[0].split(separator: ":")
