@@ -16,7 +16,12 @@ final class RecordingInteractionTests: XCTestCase {
         XCTAssertTrue(app.buttons["仅内部音"].firstMatch.waitForExistence(timeout: 3))
         XCTAssertTrue(app.buttons["内部音＋麦克风"].firstMatch.exists)
         snapshot(app, "quick-menu-audio-modes")
-        app.navigationBars.buttons.element(boundBy: 0).tap()
+        // Scope to the presented sheet: the background home navigation bar is
+        // still in the accessibility tree and its first button is "选择".
+        let modeNavigation = app.navigationBars["内部录音"]
+        XCTAssertTrue(modeNavigation.waitForExistence(timeout: 3))
+        modeNavigation.buttons.firstMatch.tap()
+        XCTAssertTrue(app.navigationBars["选择录音"].waitForExistence(timeout: 3))
         app.buttons["通话录音（方案说明）"].firstMatch.tap()
         XCTAssertTrue(app.staticTexts["通话采集尚未接通"].waitForExistence(timeout: 3))
         snapshot(app, "call-recording-limit")
