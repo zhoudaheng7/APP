@@ -10,15 +10,16 @@ enum RecorderTheme {
 }
 
 struct RecorderCardStyle: ViewModifier {
+    var padding: CGFloat = 12
     func body(content: Content) -> some View {
-        content.padding(12)
+        content.padding(padding)
             .background(RecorderTheme.surface, in: RoundedRectangle(cornerRadius: 18))
             .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(RecorderTheme.border, lineWidth: 0.5))
     }
 }
 
 extension View {
-    func recorderCard() -> some View { modifier(RecorderCardStyle()) }
+    func recorderCard(padding: CGFloat = 12) -> some View { modifier(RecorderCardStyle(padding: padding)) }
     func recorderRow() -> some View {
         listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
             .listRowBackground(Color.clear).listRowSeparator(.hidden)

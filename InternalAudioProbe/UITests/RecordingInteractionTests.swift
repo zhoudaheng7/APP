@@ -16,7 +16,7 @@ final class RecordingInteractionTests: XCTestCase {
         app.buttons["知道了"].tap()
         let check = app.buttons["检查音轨"].firstMatch
         reveal(check, in: app)
-        XCTAssertLessThan(app.otherElements["recording-card"].firstMatch.frame.height, 210)
+        XCTAssertLessThan(app.otherElements["recording-card"].firstMatch.frame.height, 170)
         print("LAYOUT_METRICS panelHeight=\(panel.frame.height) recordingCardHeight=\(app.otherElements["recording-card"].firstMatch.frame.height)")
         check.tap()
         let result = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "0 条视频轨")).firstMatch
@@ -24,6 +24,7 @@ final class RecordingInteractionTests: XCTestCase {
         let play = app.buttons["播放"].firstMatch
         reveal(play, in: app)
         XCTAssertTrue(app.staticTexts["audio-file-size"].firstMatch.exists)
+        XCTAssertTrue(app.staticTexts["waveform-drag-hint"].firstMatch.exists)
         play.tap()
         XCTAssertTrue(app.staticTexts["正在播放"].firstMatch.waitForExistence(timeout: 3))
         let slider = app.sliders["audio-progress"].firstMatch
@@ -43,6 +44,14 @@ final class RecordingInteractionTests: XCTestCase {
         let current = time.components(separatedBy: " / ")[0].split(separator: ":").compactMap { Int($0) }
         XCTAssertGreaterThan((current.first ?? 0) * 60 + (current.last ?? 0), 30)
         snapshot(app, "compact-recording-waveform-after-scrub")
+        slider.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.5)).tap()
+        expectation(for: NSPredicate(format: "value CONTAINS %@", "定位提交 2"), evaluatedWith: slider)
+        waitForExpectations(timeout: 5)
+        XCTAssertTrue(app.staticTexts["已暂停"].exists)
+        let tappedTime = app.staticTexts["playback-time"].firstMatch.label
+        let tapped = tappedTime.components(separatedBy: " / ")[0].split(separator: ":").compactMap { Int($0) }
+        XCTAssertLessThan((tapped.first ?? 0) * 60 + (tapped.last ?? 0), 20)
+        snapshot(app, "integrated-waveform-tap-to-seek")
     }
     private func snapshot(_ app: XCUIApplication, _ name: String) {
         let attachment = XCTAttachment(screenshot: app.screenshot())

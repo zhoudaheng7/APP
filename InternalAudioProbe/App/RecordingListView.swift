@@ -179,7 +179,7 @@ private struct RecordingCardView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 7) {
                 if selecting {
                     Button(action: toggleSelected) {
@@ -227,7 +227,7 @@ private struct RecordingCardView: View {
             .font(.system(size: 11, weight: .medium)).buttonStyle(.borderless)
             .frame(minHeight: 44)
         }
-        .recorderCard()
+        .recorderCard(padding: 10)
         .accessibilityElement(children: .contain).accessibilityIdentifier("recording-card")
         .alert("音轨检查", isPresented: $showCheckDetail) { Button("关闭", role: .cancel) {} }
             message: { Text(check?.message ?? "尚未检查") }

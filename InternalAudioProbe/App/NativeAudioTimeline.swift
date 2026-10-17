@@ -22,8 +22,10 @@ struct NativeAudioTimeline: UIViewRepresentable {
 final class AudioTimelineView: UIView {
     private let clockLabel = UILabel()
     private let sizeLabel = UILabel()
+    private let hintLabel = UILabel()
     private let slider = AudioScrubSlider()
     private let baseWave = CAShapeLayer()
+    private let scrubBackground = CAShapeLayer()
     private let playedWave = CAShapeLayer()
     private let playedMask = CALayer()
     private var displayLink: CADisplayLink?
@@ -58,6 +60,14 @@ final class AudioTimelineView: UIView {
         sizeLabel.accessibilityIdentifier = "audio-file-size"
         addSubview(clockLabel)
         addSubview(sizeLabel)
+        hintLabel.text = "左右拖动音轨"
+        hintLabel.font = .systemFont(ofSize: 9)
+        hintLabel.textColor = UIColor(red: 0.27, green: 0.64, blue: 0.60, alpha: 1)
+        hintLabel.textAlignment = .center
+        hintLabel.accessibilityIdentifier = "waveform-drag-hint"
+        addSubview(hintLabel)
+        layer.addSublayer(scrubBackground)
+        scrubBackground.fillColor = UIColor(red: 0.04, green: 0.17, blue: 0.18, alpha: 0.28).cgColor
         layer.addSublayer(baseWave)
         layer.addSublayer(playedWave)
         baseWave.fillColor = UIColor(red: 0.18, green: 0.28, blue: 0.34, alpha: 1).cgColor
@@ -65,15 +75,17 @@ final class AudioTimelineView: UIView {
         playedMask.backgroundColor = UIColor.white.cgColor
         playedWave.mask = playedMask
         slider.minimumValue = 0
-        slider.minimumTrackTintColor = UIColor(red: 0.20, green: 0.88, blue: 0.77, alpha: 1)
-        slider.maximumTrackTintColor = UIColor(red: 0.15, green: 0.23, blue: 0.29, alpha: 1)
-        let thumb = UIGraphicsImageRenderer(size: CGSize(width: 18, height: 18)).image { context in
+        // The native slider's horizontal track is hidden: the real waveform is its track.
+        slider.minimumTrackTintColor = .clear
+        slider.maximumTrackTintColor = .clear
+        let thumb = UIGraphicsImageRenderer(size: CGSize(width: 18, height: 30)).image { context in
             UIColor(red: 0.85, green: 0.98, blue: 0.96, alpha: 1).setFill()
-            context.cgContext.fillEllipse(in: CGRect(x: 0, y: 0, width: 18, height: 18))
+            UIBezierPath(roundedRect: CGRect(x: 7.5, y: 0, width: 3, height: 30), cornerRadius: 1.5).fill()
+            context.cgContext.fillEllipse(in: CGRect(x: 4.5, y: 10.5, width: 9, height: 9))
         }
         slider.setThumbImage(thumb, for: .normal)
         slider.setThumbImage(thumb, for: .highlighted)
-        slider.accessibilityLabel = "播放进度，可拖动定位"
+        slider.accessibilityLabel = "音轨波形，左右拖动定位"
         slider.accessibilityIdentifier = "audio-progress"
         slider.accessibilityHint = "拖动预览位置，松手后定位音频"
         slider.onBegin = { [weak self] in self?.beginDrag() }
@@ -99,7 +111,9 @@ final class AudioTimelineView: UIView {
         if peaks != waveform.peaks { peaks = waveform.peaks; geometrySize = .zero; setNeedsLayout() }
         let bytes = (try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
         let size = ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
-        let text = showFilename ? "\(file.lastPathComponent) · \(size)" : size
+        let stem = file.deletingPathExtension().lastPathComponent
+        let shortName = stem == "recording" ? "主轨" : stem.replacingOccurrences(of: "part-", with: "#")
+        let text = showFilename ? "\(shortName) · \(size)" : size
         if sizeLabel.text != text { sizeLabel.text = text }
         render(at: active ? playback.currentTime : 0, updateSlider: true)
         updateLink()
@@ -108,23 +122,27 @@ final class AudioTimelineView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        clockLabel.frame = CGRect(x: 0, y: 0, width: bounds.width * 0.55, height: 14)
-        sizeLabel.frame = CGRect(x: bounds.width * 0.55, y: 0, width: bounds.width * 0.45, height: 14)
-        slider.frame = CGRect(x: 0, y: 38, width: bounds.width, height: 28)
+        clockLabel.frame = CGRect(x: 0, y: 0, width: bounds.width * 0.42, height: 14)
+        hintLabel.frame = CGRect(x: bounds.width * 0.42, y: 0, width: bounds.width * 0.33, height: 14)
+        sizeLabel.frame = CGRect(x: bounds.width * 0.75, y: 0, width: bounds.width * 0.25, height: 14)
+        slider.frame = CGRect(x: 0, y: 13, width: bounds.width, height: 40)
         guard geometrySize != bounds.size else { return }
         geometrySize = bounds.size
         geometryBuilds += 1
         let path = UIBezierPath()
         let maximum = max(peaks.max() ?? 0, 0.0001)
-        let step = bounds.width / CGFloat(max(1, peaks.count))
+        let waveWidth = max(1, bounds.width - 18)
+        let step = waveWidth / CGFloat(max(1, peaks.count))
         for (index, peak) in peaks.enumerated() {
-            let height = max(1.5, CGFloat(sqrt(max(0, peak) / maximum)) * 20)
-            let rect = CGRect(x: CGFloat(index) * step, y: 17 + (20 - height) / 2,
+            let height = max(1.5, CGFloat(sqrt(max(0, peak) / maximum)) * 28)
+            let rect = CGRect(x: 9 + CGFloat(index) * step, y: 19 + (28 - height) / 2,
                               width: max(1, step - 1.5), height: height)
             path.append(UIBezierPath(roundedRect: rect, cornerRadius: 1))
         }
         CATransaction.begin(); CATransaction.setDisableActions(true)
         baseWave.frame = bounds; playedWave.frame = bounds
+        scrubBackground.frame = bounds
+        scrubBackground.path = UIBezierPath(roundedRect: CGRect(x: 0, y: 16, width: bounds.width, height: 34), cornerRadius: 7).cgPath
         baseWave.path = path.cgPath; playedWave.path = path.cgPath
         CATransaction.commit()
         render(at: dragging ? Double(slider.value) : active ? playback?.currentTime ?? 0 : 0, updateSlider: !dragging)
@@ -167,7 +185,7 @@ final class AudioTimelineView: UIView {
         if updateSlider && !slider.isTracking { slider.setValue(Float(time), animated: false) }
         let progress = duration > 0 ? time / duration : 0
         CATransaction.begin(); CATransaction.setDisableActions(true)
-        playedMask.frame = CGRect(x: 0, y: 0, width: bounds.width * progress, height: bounds.height)
+        playedMask.frame = CGRect(x: 0, y: 0, width: 9 + max(0, bounds.width - 18) * progress, height: bounds.height)
         CATransaction.commit()
         let second = Int(time)
         if lastSecond != second || clockLabel.text == nil {
@@ -186,6 +204,7 @@ final class AudioTimelineView: UIView {
         recordProbeEvent("begin")
         dragging = true
         playback?.beginScrubbing(file)
+        render(at: Double(slider.value), updateSlider: false)
         updateLink()
     }
     @objc private func changeValue() {
@@ -246,19 +265,32 @@ private final class AudioScrubSlider: UISlider {
     override func beginTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {
         generation += 1
         trackingGesture = true
-        let accepted = super.beginTracking(touch, with: event)
-        if accepted { onBegin?() } else { trackingGesture = false }
-        return accepted
+        updateValue(at: touch.location(in: self))
+        onBegin?()
+        sendActions(for: .valueChanged)
+        return true
+    }
+    override func continueTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {
+        updateValue(at: touch.location(in: self))
+        sendActions(for: .valueChanged)
+        return true
     }
     override func endTracking(_ touch: UITouch?, with event: UIEvent?) {
-        super.endTracking(touch, with: event)
+        if let touch { updateValue(at: touch.location(in: self)); sendActions(for: .valueChanged) }
         onEnd?()
         finishEventBatch()
     }
     override func cancelTracking(with event: UIEvent?) {
-        super.cancelTracking(with: event)
         onCancel?()
         finishEventBatch()
+    }
+    private func updateValue(at point: CGPoint) {
+        // Any point on the waveform can start a drag; it need not begin on the tiny playhead.
+        let track = trackRect(forBounds: bounds)
+        let start = thumbRect(forBounds: bounds, trackRect: track, value: minimumValue).midX
+        let end = thumbRect(forBounds: bounds, trackRect: track, value: maximumValue).midX
+        let fraction = min(1, max(0, (point.x - start) / max(1, end - start)))
+        setValue(minimumValue + Float(fraction) * (maximumValue - minimumValue), animated: false)
     }
     private func finishEventBatch() {
         // UIKit can deliver a final valueChanged after tracking becomes false. Keep the

@@ -13,6 +13,8 @@ struct AudioTrackView: View {
     var body: some View {
         HStack(spacing: 10) {
             VStack(spacing: 2) {
+                Text(active ? (playback.isPlaying ? "正在播放" : playback.finished ? "播放结束" : "已暂停") : "试听")
+                    .font(.system(size: 9, weight: .medium)).foregroundStyle(.secondary).lineLimit(1)
                 Button { playback.toggle(file) } label: {
                     Image(systemName: active && playback.isPlaying ? "pause.fill" : "play.fill")
                         .font(.system(size: 15, weight: .bold))
@@ -22,20 +24,18 @@ struct AudioTrackView: View {
                 .foregroundStyle(RecorderTheme.accent)
                 .disabled(!enabled)
                 .accessibilityLabel(active && playback.isPlaying ? "暂停" : "播放")
-                Text(active ? (playback.isPlaying ? "正在播放" : playback.finished ? "播放结束" : "已暂停") : "试听")
-                    .font(.system(size: 9, weight: .medium)).foregroundStyle(.secondary).lineLimit(1)
             }
             if let waveform {
                 NativeAudioTimeline(file: file, waveform: waveform, playback: playback,
                                     enabled: enabled, showFilename: showFilename)
-                    .frame(height: 64)
+                    .frame(height: 54)
             } else {
                 HStack(spacing: 6) {
                     if loadError == nil { ProgressView().controlSize(.mini) }
                     Text(loadError == nil ? "读取音轨…" : "音轨读取失败")
                         .font(.caption2).foregroundStyle(.secondary)
                     Spacer()
-                }.frame(height: 64).accessibilityLabel(loadError ?? "正在读取音轨")
+                }.frame(height: 54).accessibilityLabel(loadError ?? "正在读取音轨")
             }
         }
         .task(id: file) {
