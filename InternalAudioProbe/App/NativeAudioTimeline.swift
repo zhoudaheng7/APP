@@ -75,9 +75,7 @@ final class AudioTimelineView: UIView {
         playedMask.backgroundColor = UIColor.white.cgColor
         playedWave.mask = playedMask
         slider.minimumValue = 0
-        // The native slider's horizontal track is hidden: the real waveform is its track.
-        slider.minimumTrackTintColor = .clear
-        slider.maximumTrackTintColor = .clear
+        // The waveform is the track; UIKit's plain UIControl owns the entire touch region.
         let thumb = UIGraphicsImageRenderer(size: CGSize(width: 18, height: 30)).image { context in
             UIColor(red: 0.85, green: 0.98, blue: 0.96, alpha: 1).setFill()
             UIBezierPath(roundedRect: CGRect(x: 7.5, y: 0, width: 3, height: 30), cornerRadius: 1.5).fill()
@@ -255,12 +253,47 @@ final class AudioTimelineView: UIView {
     }
 }
 
-private final class AudioScrubSlider: UISlider {
+private final class AudioScrubSlider: UIControl {
+    var minimumValue: Float = 0 { didSet { setValue(value, animated: false) } }
+    var maximumValue: Float = 1 { didSet { setValue(value, animated: false) } }
+    private(set) var value: Float = 0
+    private let cursor = UIImageView()
     var onBegin: (() -> Void)?
     var onEnd: (() -> Void)?
     var onCancel: (() -> Void)?
     private(set) var trackingGesture = false
     private var generation = 0
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        addSubview(cursor)
+        cursor.isUserInteractionEnabled = false
+        isAccessibilityElement = true
+        accessibilityTraits = [.adjustable]
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    func setThumbImage(_ image: UIImage?, for state: UIControl.State) {
+        cursor.image = image
+        setNeedsLayout()
+    }
+    func setValue(_ newValue: Float, animated: Bool) {
+        value = min(max(minimumValue, newValue), maximumValue)
+        positionCursor()
+    }
+    override func layoutSubviews() { super.layoutSubviews(); positionCursor() }
+    private func positionCursor() {
+        let fraction = maximumValue > minimumValue ? CGFloat((value - minimumValue) / (maximumValue - minimumValue)) : 0
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        cursor.frame = CGRect(x: max(0, bounds.width - 18) * fraction, y: (bounds.height - 30) / 2, width: 18, height: 30)
+        CATransaction.commit()
+    }
+    override func accessibilityIncrement() { adjust(by: 5) }
+    override func accessibilityDecrement() { adjust(by: -5) }
+    private func adjust(by seconds: Float) {
+        guard isEnabled else { return }
+        setValue(value + seconds, animated: false)
+        sendActions(for: .valueChanged)
+    }
 
     override func beginTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {
         generation += 1
@@ -286,9 +319,8 @@ private final class AudioScrubSlider: UISlider {
     }
     private func updateValue(at point: CGPoint) {
         // Any point on the waveform can start a drag; it need not begin on the tiny playhead.
-        let track = trackRect(forBounds: bounds)
-        let start = thumbRect(forBounds: bounds, trackRect: track, value: minimumValue).midX
-        let end = thumbRect(forBounds: bounds, trackRect: track, value: maximumValue).midX
+        let start: CGFloat = 9
+        let end = bounds.width - 9
         let fraction = min(1, max(0, (point.x - start) / max(1, end - start)))
         setValue(minimumValue + Float(fraction) * (maximumValue - minimumValue), animated: false)
     }

@@ -27,7 +27,7 @@ final class RecordingInteractionTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["waveform-drag-hint"].firstMatch.exists)
         play.tap()
         XCTAssertTrue(app.staticTexts["正在播放"].firstMatch.waitForExistence(timeout: 3))
-        let slider = app.sliders["audio-progress"].firstMatch
+        let slider = app.descendants(matching: .any)["audio-progress"].firstMatch
         XCTAssertTrue(slider.exists)
         let value = slider.value as? String ?? "0%"
         let percent = Double(value.components(separatedBy: "%")[0]) ?? 0
@@ -51,7 +51,17 @@ final class RecordingInteractionTests: XCTestCase {
         let tappedTime = app.staticTexts["playback-time"].firstMatch.label
         let tapped = tappedTime.components(separatedBy: " / ")[0].split(separator: ":").compactMap { Int($0) }
         XCTAssertLessThan((tapped.first ?? 0) * 60 + (tapped.last ?? 0), 20)
+        XCTAssertEqual(tappedTime.components(separatedBy: " / ").last, time.components(separatedBy: " / ").last)
         snapshot(app, "integrated-waveform-tap-to-seek")
+        slider.coordinate(withNormalizedOffset: CGVector(dx: 0.4, dy: 0.5)).press(forDuration: 0.1,
+            thenDragTo: slider.coordinate(withNormalizedOffset: CGVector(dx: 0.86, dy: 0.5)))
+        expectation(for: NSPredicate(format: "value CONTAINS %@", "定位提交 3"), evaluatedWith: slider)
+        waitForExpectations(timeout: 5)
+        XCTAssertTrue(app.staticTexts["已暂停"].exists)
+        let finalTime = app.staticTexts["playback-time"].firstMatch.label
+        let final = finalTime.components(separatedBy: " / ")[0].split(separator: ":").compactMap { Int($0) }
+        XCTAssertGreaterThan((final.first ?? 0) * 60 + (final.last ?? 0), 45)
+        XCTAssertEqual(finalTime.components(separatedBy: " / ").last, time.components(separatedBy: " / ").last)
     }
     private func snapshot(_ app: XCUIApplication, _ name: String) {
         let attachment = XCTAttachment(screenshot: app.screenshot())
