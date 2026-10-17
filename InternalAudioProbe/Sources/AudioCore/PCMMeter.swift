@@ -21,6 +21,7 @@ public enum PCMMeter {
             blockBufferOut: &retained
         )
         guard status == noErr else { return nil }
+        defer { withExtendedLifetime(retained) {} }
         let floating = format.mFormatFlags & kAudioFormatFlagIsFloat != 0
         let signed = format.mFormatFlags & kAudioFormatFlagIsSignedInteger != 0
         let big = format.mFormatFlags & kAudioFormatFlagIsBigEndian != 0

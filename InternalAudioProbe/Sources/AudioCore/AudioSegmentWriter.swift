@@ -129,6 +129,13 @@ public final class AudioSegmentWriter: @unchecked Sendable {
         segmentStart = nil
         segmentEnd = nil
         currentIndex = nil
+        guard writer.status == .writing else {
+            report.segments[index].state = "failed"
+            report.segments[index].error = writer.error?.localizedDescription ?? "编码器未处于可完成状态"
+            report.error = report.segments[index].error
+            try? persist()
+            return
+        }
         input.markAsFinished()
         finalizations.enter()
         writer.finishWriting { [self] in
