@@ -10,4 +10,9 @@ enum RecordingPaths {
         FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: groupIdentifier)?
             .appendingPathComponent("Recordings", isDirectory: true)
     }
+
+    static var microphonePreference: Bool {
+        get { UserDefaults(suiteName: groupIdentifier)?.bool(forKey: "nextRecordingMicrophone") ?? false }
+        set { UserDefaults(suiteName: groupIdentifier)?.set(newValue, forKey: "nextRecordingMicrophone") }
+    }
 }

@@ -27,7 +27,9 @@ public struct SessionReport: Codable, Identifiable, Sendable {
     public var error: String?
     public var captureSource: String?
     public var mergedFrom: [UUID]?
-    public private(set) var microphoneRecorded = false
+    public var microphoneRequested: Bool?
+    public var microphoneBuffers: Int?
+    public internal(set) var microphoneRecorded = false
     public private(set) var videoSaved = false
 
     public init(id: UUID = UUID(), startedAt: Date = Date()) {

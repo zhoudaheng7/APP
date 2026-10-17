@@ -56,6 +56,8 @@ struct RecorderView: View {
             }
             .refreshable { recorder.refreshSessions() }
             .sheet(isPresented: $showHelp) { helpSheet }
+            .sheet(isPresented: $recorder.showCallInfo) { callInfoSheet }
+            .sheet(isPresented: $recorder.showQuickMenu) { quickMenuSheet }
             .confirmationDialog("删除 \(pendingDelete.count) 条录音及其音频文件？", isPresented: $confirmDelete, titleVisibility: .visible) {
                 Button("删除录音", role: .destructive) {
                     playback.stop(); recorder.delete(ids: pendingDelete)
@@ -74,12 +76,22 @@ struct RecorderView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 7) {
                 Image(systemName: "waveform").foregroundStyle(RecorderTheme.accent)
-                Text("只录内部声音").font(.system(size: 15, weight: .semibold))
+                Menu {
+                    Button("仅内部音") { recorder.microphoneEnabled = false; RecordingPaths.microphonePreference = false }
+                    Button("内部音＋麦克风") { recorder.microphoneEnabled = true; RecordingPaths.microphonePreference = true }
+                    Button("快捷指令与通话说明") { showHelp = true }
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(recorder.microphoneEnabled ? "内部音＋麦克风" : "仅内部声音")
+                        Image(systemName: "chevron.down").font(.system(size: 9))
+                    }.font(.system(size: 15, weight: .semibold)).foregroundStyle(.primary)
+                }.disabled(!idle).accessibilityIdentifier("recording-mode")
                 Spacer()
                 Text("AUDIO ONLY").font(.system(size: 9, weight: .semibold, design: .monospaced))
                     .foregroundStyle(RecorderTheme.accent.opacity(0.8))
             }
-            Text("连续录制 · 不存画面 · 不录麦克风").font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
+            Text(recorder.microphoneEnabled ? "连续录制 · 不存画面 · 两路混成一个文件" : "连续录制 · 不存画面 · 麦克风关闭")
+                .font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
             Button {
                 playback.stop()
                 if recorder.phase == .idle { recorder.start() }
@@ -112,11 +124,12 @@ struct RecorderView: View {
             }
             Rectangle().fill(Color.white.opacity(0.06)).frame(height: 0.5)
             HStack {
-                Label("控制中心直录", systemImage: "record.circle").font(.system(size: 11, weight: .medium))
+                Button { recorder.showQuickMenu = true } label: { Label("快捷录音", systemImage: "record.circle") }
+                    .font(.system(size: 11, weight: .medium)).accessibilityIdentifier("quick-recording-menu")
                 Spacer()
                 Button("使用说明") { showHelp = true }.font(.system(size: 11)).accessibilityIdentifier("recording-help")
             }
-            Text("长按「录屏」→「声屿 · 仅音频」→ 开始广播")
+            Text("长按灵动岛 → 停止并保存 · 支持快捷指令入口")
                 .font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1).minimumScaleFactor(0.85)
         }
         .recorderCard()
@@ -146,18 +159,67 @@ struct RecorderView: View {
 
     private var helpSheet: some View {
         NavigationStack {
-            VStack(alignment: .leading, spacing: 16) {
+            ScrollView { VStack(alignment: .leading, spacing: 16) {
                 Label("从控制中心开始", systemImage: "record.circle").font(.headline)
                 Text("下拉控制中心，长按「录屏」，选择「声屿 · 仅音频」，再点「开始广播」。停止时点击系统录屏按钮，之后回到这里试听和导出。")
-                Text("也可以直接使用首页的「开始内录」。录音会持续保存，不按分钟切段；程序只保存内部声音。")
+                Text("App 或快捷指令开始的录音：录前选择仅内部音或内部音＋麦克风，通过系统授权后开录。长按灵动岛展开，再点「停止并保存」；关闭实时活动时需从 App 或系统停止。")
+                Text("快捷指令中搜索「声屿」，可用「录音菜单」「仅内部音」「内部音＋麦克风」。组合菜单：第一层通话说明／内部录音，内部录音再选两种模式。系统采集确认不能跳过。")
+                Text("控制中心独立开录沿用 App 最近选择的麦克风模式。混音还需先在系统录屏面板开启麦克风；未收到麦克风样本不会记成混音成功。独立广播不能保证创建声屿灵动岛，请从系统录屏停止。")
+                Button("通话录音方案说明") { showHelp = false; recorder.showCallInfo = true }
                 Text(recorder.controlCenterStatus).font(.caption).foregroundStyle(.secondary)
                 Text("合并生成新录音并保留原件。删除无法撤销，重要录音请先导出。").font(.caption).foregroundStyle(.secondary)
-                Spacer()
-            }.padding(20).font(.subheadline)
+            }.padding(20).font(.subheadline) }
                 .background(RecorderTheme.background)
                 .navigationTitle("录音使用说明").navigationBarTitleDisplayMode(.inline)
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("知道了") { showHelp = false } } }
         }.presentationDetents([.medium, .large])
+    }
+
+    private var callInfoSheet: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("通话采集尚未接通").font(.title3.bold())
+                    Text("此版本不能用声屿直接开始或停止系统电话、微信或 WhatsApp 的双向通话录音。快捷指令不会增加通话音频权限，打开麦克风也不等于录到通话双方。")
+                    Text("已审查 AirBeep：它修改系统通话录音提示音，没有通话采集或开始／停止接口，且依赖非公开系统机制与配对环境。尚未合入此包。")
+                    Text("已审查 TrollRecorder：具备实际通话采集，但依赖 TrollStore／越狱及专用权限，不能直接用于此企业签名 iOS 27 包。")
+                    Link("查看 AirBeep 源码", destination: URL(string: "https://github.com/LinkPass888/AirBeep")!)
+                    Link("查看 TrollRecorder 源码", destination: URL(string: "https://github.com/Lessica/TrollRecorder")!)
+                    Text("系统电话录音请使用电话 App 自身提供的功能，录音由系统管理；声屿灵动岛不能控制它。")
+                        .font(.caption).foregroundStyle(.secondary)
+                }.padding(20)
+            }.background(RecorderTheme.background).navigationTitle("通话录音").navigationBarTitleDisplayMode(.inline)
+                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("关闭") { recorder.showCallInfo = false } } }
+        }
+    }
+
+    private var quickMenuSheet: some View {
+        NavigationStack {
+            List {
+                NavigationLink("通话录音（方案说明）") {
+                    callInfoSheet
+                }
+                NavigationLink("内部录音") {
+                    List {
+                        Button("仅内部音") { startFromMenu(microphone: false) }
+                        Button("内部音＋麦克风") { startFromMenu(microphone: true) }
+                    }.navigationTitle("内部录音").navigationBarTitleDisplayMode(.inline)
+                }
+            }.navigationTitle("选择录音").navigationBarTitleDisplayMode(.inline)
+                .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { recorder.showQuickMenu = false } } }
+        }.tint(RecorderTheme.accent).preferredColorScheme(.dark)
+            .presentationDetents([.medium, .large])
+    }
+
+    private func startFromMenu(microphone: Bool) {
+        recorder.showQuickMenu = false
+        playback.stop()
+        Task { @MainActor in
+            // Let the menu sheet dismiss before presenting the system picker/permission alert.
+            try? await Task.sleep(for: .milliseconds(350))
+            do { try await recorder.prepareStart(microphone: microphone) }
+            catch { recorder.status = error.localizedDescription }
+        }
     }
 }
 
@@ -175,7 +237,7 @@ private struct RecordingCardView: View {
     @State private var showCheckDetail = false
     private var usable: Bool { enabled && !session.isActive }
     private var title: String {
-        session.report.captureSource == "merged" ? "合并录音" : session.report.captureSource == "control-center" ? "控制中心" : "内部录音"
+        session.report.captureSource == "merged" ? "合并录音" : session.report.microphoneRecorded ? "混音录音" : session.report.captureSource == "control-center" ? "控制中心" : "内部录音"
     }
 
     var body: some View {
@@ -200,6 +262,10 @@ private struct RecordingCardView: View {
             if session.audioFiles.isEmpty {
                 Text(session.isActive ? "录制中，停止后可试听" : "暂无完整音频")
                     .font(.caption2).foregroundStyle(.secondary).frame(height: 28)
+            }
+            if session.report.microphoneRequested == true && !session.report.microphoneRecorded && !session.isActive {
+                Text("未收到麦克风声音，请检查系统麦克风开关。")
+                    .font(.system(size: 10)).foregroundStyle(.orange)
             }
             HStack(spacing: 8) {
                 Button(check?.checking == true ? "检查中…" : "检查音轨", action: inspect)

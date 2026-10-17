@@ -53,6 +53,8 @@ jobs:
           git rev-parse HEAD > dist/source-commit.txt
           cp README.md dist/INSTALL.txt
           cp SIGNING.md dist/SIGNING.txt
+          cp Design/OPEN-SOURCE.md dist/OPEN-SOURCE.txt
+          cp App/Resources/HaishinKit-LICENSE.txt dist/HaishinKit-LICENSE.txt
           cp App/AudioCapture.entitlements dist/MainApp.entitlements
           cp Broadcast/AudioCapture.entitlements dist/Broadcast.entitlements
       - name: Verify playback feedback and track-check UI in iPhone Simulator

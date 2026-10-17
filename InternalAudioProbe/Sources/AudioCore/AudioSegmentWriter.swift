@@ -21,10 +21,11 @@ public final class AudioSegmentWriter: @unchecked Sendable {
     private var finishing = false
     private var lastPublication = Date.distantPast
 
-    public init(root: URL, segmentLength: Double = .infinity, captureSource: String? = nil) throws {
+    public init(root: URL, segmentLength: Double = .infinity, captureSource: String? = nil, microphoneRequested: Bool = false) throws {
         self.segmentLength = segmentLength
         var report = SessionReport()
         report.captureSource = captureSource
+        report.microphoneRequested = microphoneRequested
         self.report = report
         folder = root.appendingPathComponent(report.id.uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -74,6 +75,14 @@ public final class AudioSegmentWriter: @unchecked Sendable {
             guard accepting else { return }
             report.videoFramesDiscarded += 1
             // No pixel buffer is retained, encoded, copied, or written to disk.
+        }
+    }
+
+    public func noteMicrophoneInput() {
+        queue.async { [self] in
+            guard accepting else { return }
+            report.microphoneRecorded = true
+            report.microphoneBuffers = (report.microphoneBuffers ?? 0) + 1
         }
     }
 

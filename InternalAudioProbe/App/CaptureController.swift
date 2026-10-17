@@ -1,4 +1,5 @@
 import AudioCore
+import ActivityKit
 import AVFoundation
 import Combine
 #if canImport(ScreenCaptureKit)
@@ -8,6 +9,7 @@ import SwiftUI
 
 @MainActor
 final class CaptureController: NSObject, ObservableObject {
+    static let shared = CaptureController()
     enum Phase: String { case idle, selecting, starting, recording, stopping }
     @Published var phase: Phase = .idle
     @Published var status = "准备好后点开始，再切到课程或其他播放 App。"
@@ -19,7 +21,14 @@ final class CaptureController: NSObject, ObservableObject {
     @Published var libraryWorking = false
     @Published var libraryMessage = ""
     @Published var externalRecording = false
+    @Published var microphoneEnabled = false
+    @Published var showQuickMenu = false
+    @Published var showCallInfo = false
     private var writer: AudioSegmentWriter?
+    private var mixer: AudioMixWriter?
+    private var microphone: MicrophoneCapture?
+    private var liveActivity: Activity<RecordingActivityAttributes>?
+    private var interruptionObserver: NSObjectProtocol?
 #if canImport(ScreenCaptureKit)
     private var stream: SCStream?
     private var sink: AudioSink?
@@ -32,15 +41,36 @@ final class CaptureController: NSObject, ObservableObject {
         root = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Recordings", isDirectory: true)
         super.init()
+        interruptionObserver = NotificationCenter.default.addObserver(forName: AVAudioSession.interruptionNotification,
+            object: nil, queue: .main) { [weak self] notification in
+                guard let raw = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+                      raw == AVAudioSession.InterruptionType.began.rawValue else { return }
+                Task { @MainActor in
+                    guard let self, self.microphoneEnabled, self.phase == .recording else { return }
+                    await self.stop(reason: "麦克风被通话或系统中断，已保存收到的音频。")
+                }
+            }
         refreshSessions()
     }
 
     func start() {
-        guard phase == .idle, !libraryWorking, !externalRecording else { return }
+        Task { do { try await prepareStart(microphone: microphoneEnabled) } catch { status = error.localizedDescription } }
+    }
+
+    func prepareStart(microphone enabled: Bool) async throws {
+        refreshSessions()
+        guard phase == .idle, !libraryWorking, !externalRecording else { throw StartError.busy }
+        phase = .starting
+        microphoneEnabled = enabled
+        RecordingPaths.microphonePreference = enabled
+        if enabled {
+            let granted = await AVAudioApplication.requestRecordPermission()
+            guard granted else { phase = .idle; throw StartError.permission }
+        }
 #if canImport(ScreenCaptureKit)
         let picker = SCContentSharingPicker.shared
-        guard picker.isAvailable else { status = "当前设备无法打开系统采集选择器。"; return }
-        guard !picker.isActive else { status = "已有其他屏幕采集正在使用选择器，请先停止。"; return }
+        guard picker.isAvailable else { phase = .idle; throw StartError.unavailable }
+        guard !picker.isActive else { phase = .idle; throw StartError.busy }
         phase = .selecting
         status = "请在系统选择器中允许采集；本程序不保存画面。"
         report = nil
@@ -53,6 +83,7 @@ final class CaptureController: NSObject, ObservableObject {
         picker.isActive = true
         picker.present()
 #else
+        phase = .idle
         status = "模拟器不支持系统内录；请在 iPhone 真机录音。这里可验证录音库与播放界面。"
 #endif
     }
@@ -62,7 +93,7 @@ final class CaptureController: NSObject, ObservableObject {
         guard phase == .selecting else { return }
         phase = .starting
         do {
-            let output = try AudioSegmentWriter(root: root)
+            let output = try AudioSegmentWriter(root: root, microphoneRequested: microphoneEnabled)
             writer = output
             output.onUpdate = { [weak self] value in
                 Task { @MainActor in self?.report = value }
@@ -70,7 +101,10 @@ final class CaptureController: NSObject, ObservableObject {
             output.onFatalError = { [weak self] message in
                 Task { @MainActor in await self?.stop(reason: message) }
             }
-            let sink = AudioSink(writer: output)
+            let mix = microphoneEnabled ? AudioMixWriter(writer: output) : nil
+            mix?.onError = output.onFatalError
+            mixer = mix
+            let sink = AudioSink(writer: output, mixer: mix)
             self.sink = sink
             let configuration = SCStreamConfiguration()
             configuration.capturesAudio = true
@@ -82,10 +116,21 @@ final class CaptureController: NSObject, ObservableObject {
             try capture.addStreamOutput(sink, type: .screen, sampleHandlerQueue: sink.callbackQueue)
             try capture.addStreamOutput(sink, type: .audio, sampleHandlerQueue: sink.callbackQueue)
             stream = capture
+            if ActivityAuthorizationInfo().areActivitiesEnabled {
+                liveActivity = try Activity.request(attributes: RecordingActivityAttributes(
+                    sessionID: output.folder.lastPathComponent, startedAt: Date(), microphone: microphoneEnabled),
+                    content: ActivityContent(state: .init(message: "正在录制 · 长按灵动岛可停止"), staleDate: nil), pushType: nil)
+            }
             try await capture.startCapture()
+            if let mix {
+                let mic = MicrophoneCapture()
+                microphone = mic
+                try mic.start(mixer: mix)
+            }
             guard phase == .starting else { return }
             phase = .recording
-            status = "正在录内部音，可切换到播放 App。麦克风关闭；画面不保存。"
+            status = microphoneEnabled ? "正在录内部音＋麦克风；画面不保存。" : "正在录内部音；麦克风关闭，画面不保存。"
+            if liveActivity == nil { status += " 灵动岛状态未启用，请从 App 或系统停止。" }
             releasePicker()
         } catch {
             await stop(reason: "启动失败：\(error.localizedDescription)")
@@ -109,8 +154,15 @@ final class CaptureController: NSObject, ObservableObject {
             try? await stream.stopCapture()
         }
         stream = nil
+        if let sink {
+            await withCheckedContinuation { continuation in
+                sink.callbackQueue.async { continuation.resume() }
+            }
+        }
         sink = nil
 #endif
+        microphone?.stop()
+        microphone = nil
         guard let writer else {
             phase = .idle
             status = reason ?? "已取消。"
@@ -118,8 +170,16 @@ final class CaptureController: NSObject, ObservableObject {
             return
         }
         self.writer = nil
+        let mix = mixer
+        mixer = nil
         let completed = await withCheckedContinuation { continuation in
-            writer.finish(reason: reason) { value in continuation.resume(returning: value) }
+            let completion: @Sendable (SessionReport) -> Void = { value in continuation.resume(returning: value) }
+            if let mix { mix.finish(reason: reason, completion: completion) }
+            else { writer.finish(reason: reason, completion: completion) }
+        }
+        if let liveActivity {
+            await liveActivity.end(ActivityContent(state: .init(message: "已停止并保存"), staleDate: nil), dismissalPolicy: .immediate)
+            self.liveActivity = nil
         }
         report = completed
         phase = .idle
@@ -129,9 +189,33 @@ final class CaptureController: NSObject, ObservableObject {
         case "interrupted": status = "录制中断：\(completed.error ?? "请查看分段状态")"
         default: status = "已保存纯音频。试听后再确认这次录制是否成功。"
         }
+        if completed.microphoneRequested == true && !completed.microphoneRecorded { status += " 注意：未收到麦克风音频。" }
         refreshSessions()
         if let session = sessions.first(where: { $0.id == completed.id }) { await inspect(session) }
         endBackgroundTask()
+    }
+
+    func stopFromActivity(sessionID: String) async throws {
+        guard writer?.folder.lastPathComponent == sessionID, phase == .recording else {
+            // Dismiss an obsolete activity after system termination; do not stop another session.
+            for activity in Activity<RecordingActivityAttributes>.activities where activity.attributes.sessionID == sessionID {
+                await activity.end(nil, dismissalPolicy: .immediate)
+            }
+            throw StartError.noActiveRecording
+        }
+        await stop()
+    }
+
+    enum StartError: LocalizedError {
+        case busy, permission, unavailable, noActiveRecording
+        var errorDescription: String? {
+            switch self {
+            case .busy: return "已有录音或其他操作进行中，请先停止。"
+            case .permission: return "麦克风权限未开启。请在设置中允许声屿访问麦克风，或选择仅内部音。"
+            case .unavailable: return "当前设备无法打开系统采集选择器。"
+            case .noActiveRecording: return "这条录音已停止或系统已结束采集，请打开声屿检查保存结果。"
+            }
+        }
     }
 
     private func endBackgroundTask() {
@@ -258,10 +342,14 @@ extension CaptureController: SCContentSharingPickerObserver {
 private final class AudioSink: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
     let callbackQueue = DispatchQueue(label: "com.lightsquare.capture-callbacks", qos: .userInitiated)
     let writer: AudioSegmentWriter
+    let mixer: AudioMixWriter?
     var onStopped: (@Sendable (String?) -> Void)?
-    init(writer: AudioSegmentWriter) { self.writer = writer }
+    init(writer: AudioSegmentWriter, mixer: AudioMixWriter?) { self.writer = writer; self.mixer = mixer }
     func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
-        if type == .audio { writer.append(sampleBuffer) }
+        if type == .audio {
+            if let mixer { mixer.append(sampleBuffer, track: .app) }
+            else { writer.append(sampleBuffer) }
+        }
         else if type == .screen { writer.discardVideoFrame() }
         // Microphone output is never registered or consumed.
     }

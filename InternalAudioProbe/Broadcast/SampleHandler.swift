@@ -5,6 +5,7 @@ import ReplayKit
 /// Runs independently of the containing app, including starts from Control Center.
 final class SampleHandler: RPBroadcastSampleHandler, @unchecked Sendable {
     private var writer: AudioSegmentWriter?
+    private var mixer: AudioMixWriter?
     private var activityTimer: DispatchSourceTimer?
     private var activeMarker: URL?
 
@@ -16,7 +17,8 @@ final class SampleHandler: RPBroadcastSampleHandler, @unchecked Sendable {
             return
         }
         do {
-            let output = try AudioSegmentWriter(root: root, captureSource: "control-center")
+            let useMic = RecordingPaths.microphonePreference
+            let output = try AudioSegmentWriter(root: root, captureSource: "control-center", microphoneRequested: useMic)
             output.onFatalError = { [weak self] message in
                 DispatchQueue.global(qos: .userInitiated).async { [weak self] in
                     self?.finishBroadcastWithError(NSError(domain: "InternalAudioProbe", code: 2,
@@ -24,6 +26,11 @@ final class SampleHandler: RPBroadcastSampleHandler, @unchecked Sendable {
                 }
             }
             writer = output
+            if useMic {
+                let mix = AudioMixWriter(writer: output)
+                mix.onError = output.onFatalError
+                mixer = mix
+            }
             let marker = output.folder.appendingPathComponent(".active")
             try Data().write(to: marker)
             activeMarker = marker
@@ -41,9 +48,11 @@ final class SampleHandler: RPBroadcastSampleHandler, @unchecked Sendable {
 
     override func processSampleBuffer(_ sampleBuffer: CMSampleBuffer, with sampleBufferType: RPSampleBufferType) {
         switch sampleBufferType {
-        case .audioApp: writer?.append(sampleBuffer)
+        case .audioApp:
+            if let mixer { mixer.append(sampleBuffer, track: .app) }
+            else { writer?.append(sampleBuffer) }
         case .video: writer?.discardVideoFrame()
-        case .audioMic: break // Ignore microphone samples even if the system toggle was turned on.
+        case .audioMic: mixer?.append(sampleBuffer, track: .microphone)
         @unknown default: break
         }
     }
@@ -60,7 +69,9 @@ final class SampleHandler: RPBroadcastSampleHandler, @unchecked Sendable {
         // ReplayKit can tear down the extension after this callback returns. Finish on the
         // independent writer queue, with a bounded wait; finalized earlier parts stay safe.
         let completed = DispatchSemaphore(value: 0)
-        output.finish { _ in completed.signal() }
+        if let mixer { mixer.finish { _ in completed.signal() } }
+        else { output.finish { _ in completed.signal() } }
+        mixer = nil
         _ = completed.wait(timeout: .now() + 8)
     }
 }

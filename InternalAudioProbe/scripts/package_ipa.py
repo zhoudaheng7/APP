@@ -45,8 +45,15 @@ def package(app: Path, destination: Path) -> dict:
     assert info.get('CADisableMinimumFrameDurationOnPhone') is True, 'High refresh-rate opt-in missing'
     if info.get('CFBundleSupportedPlatforms') != ['iPhoneOS']:
         raise ValueError('Info.plist is not a device build')
-    if 'NSMicrophoneUsageDescription' in info:
-        raise ValueError('This internal-audio probe must not request microphone access')
+    assert info.get('NSMicrophoneUsageDescription'), 'Mixed-mode microphone purpose missing'
+    assert info.get('NSSupportsLiveActivities') is True
+    activity = app / 'PlugIns/RecordingActivity.appex'
+    activity_info = plistlib.loads((activity / 'Info.plist').read_bytes())
+    activity_binary = verify_binary((activity / activity_info['CFBundleExecutable']).read_bytes())
+    assert activity_info['NSExtension']['NSExtensionPointIdentifier'] == 'com.apple.widgetkit-extension'
+    assert activity_info['CFBundleIdentifier'] == info['CFBundleIdentifier'] + '.activity'
+    assert activity_info['CFBundleShortVersionString'] == info['CFBundleShortVersionString']
+    assert 'audio' in info['UIBackgroundModes']
     if 'screen-capture' not in info.get('UIBackgroundModes', []):
         raise ValueError('Missing background screen-capture mode')
     if (app / 'embedded.mobileprovision').exists():
@@ -64,7 +71,8 @@ def package(app: Path, destination: Path) -> dict:
     evidence.update(bundleIdentifier=info['CFBundleIdentifier'], version=info['CFBundleShortVersionString'],
                     fileCount=len(files), size=destination.stat().st_size,
                     sha256=hashlib.sha256(destination.read_bytes()).hexdigest(), signed=False,
-                    microphonePermission=False, backgroundModes=info['UIBackgroundModes'],
+                    microphonePermission=True, microphoneDefault=False, backgroundModes=info['UIBackgroundModes'],
+                    liveActivity={'bundleIdentifier': activity_info['CFBundleIdentifier'], **activity_binary},
                     extension={'bundleIdentifier': ext_info['CFBundleIdentifier'], **ext_binary},
                     appGroup=info['AudioAppGroupIdentifier'], iconAssets=True, highRefreshEnabled=True)
     destination.with_suffix('.verification.json').write_text(json.dumps(evidence, indent=2) + '\n', encoding='utf-8')

@@ -11,8 +11,10 @@
   <key>CFBundleShortVersionString</key><string>$(MARKETING_VERSION)</string>
   <key>CFBundleVersion</key><string>$(CURRENT_PROJECT_VERSION)</string>
   <key>LSRequiresIPhoneOS</key><true/>
-  <key>NSScreenCaptureUsageDescription</key><string>在你主动授权后保存设备内部音频，不保存视频、截图或麦克风声音。</string>
-  <key>UIBackgroundModes</key><array><string>screen-capture</string></array>
+  <key>NSScreenCaptureUsageDescription</key><string>在你主动授权后保存设备内部音频，不保存视频或截图；可在录制前选择加入麦克风。</string>
+  <key>NSMicrophoneUsageDescription</key><string>仅在你选择“内部音＋麦克风”时，收录周围人声并与内部声音混成一个音频文件。</string>
+  <key>NSSupportsLiveActivities</key><true/>
+  <key>UIBackgroundModes</key><array><string>screen-capture</string><string>audio</string></array>
   <key>AudioAppGroupIdentifier</key><string>$(AUDIO_APP_GROUP)</string>
   <key>UIFileSharingEnabled</key><true/>
   <key>CADisableMinimumFrameDurationOnPhone</key><true/>

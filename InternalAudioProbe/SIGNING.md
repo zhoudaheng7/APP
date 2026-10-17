@@ -1,9 +1,10 @@
 # 企业签名要求 · 声屿
 
-此版本加入控制中心广播扩展。请签名服务同时处理主 App 和 `PlugIns/InternalAudioBroadcast.appex`，保留扩展，不能只签主可执行文件。
+0.4.0包含广播与实时活动两个扩展。请签名服务同时处理主 App、`PlugIns/InternalAudioBroadcast.appex` 和 `PlugIns/RecordingActivity.appex`，保留两者，不能只签主可执行文件。
 
 主 Bundle ID：`com.lightsquare.internalaudioprobe`。
 扩展 Bundle ID：`com.lightsquare.internalaudioprobe.broadcast`。
+实时活动扩展 Bundle ID：`com.lightsquare.internalaudioprobe.activity`，需同团队有效profile；该扩展不读取录音共享容器，不额外要求App Group或推送权限。
 两个目标均需同一开发团队、有效 provisioning profile，并授权同一个 App Group：`group.com.lightsquare.internalaudioprobe`。
 
 两个签名的 entitlements 都应包含：
@@ -19,7 +20,7 @@
 
 不要添加不存在的 `com.apple.developer.replaykit.broadcast` entitlement。本版本只使用标准 Broadcast Upload Extension 注册和 App Groups。
 
-App 的 `screen-capture` 后台模式、图标资产、最低 iOS 27 和用户已有数据需要保留。建议覆盖安装，先导出旧音频；卸载再装可能清除录音。
+App 的 `screen-capture` 和 `audio` 后台模式、NSSupportsLiveActivities、麦克风用途声明、图标资产、最低 iOS 27 和用户已有数据需要保留。麦克风默认关闭，混音才请求权限。建议覆盖安装，先导出旧音频；卸载再装可能清除录音。
 
 安装后长按控制中心录屏按钮，选择「声屿 · 仅音频」→ 开始广播。结束后打开主 App，查看并只导出 M4A。
 

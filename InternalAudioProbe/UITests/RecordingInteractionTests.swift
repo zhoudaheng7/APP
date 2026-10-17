@@ -1,6 +1,26 @@
 import XCTest
 
 final class RecordingInteractionTests: XCTestCase {
+    func testQuickMenuModesAndCallLimitAreVisible() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launch()
+        app.buttons["recording-mode"].tap()
+        app.buttons["内部音＋麦克风"].firstMatch.tap()
+        XCTAssertTrue(app.staticTexts["连续录制 · 不存画面 · 两路混成一个文件"].exists)
+        app.buttons["recording-mode"].tap()
+        app.buttons["仅内部音"].firstMatch.tap()
+        XCTAssertTrue(app.staticTexts["连续录制 · 不存画面 · 麦克风关闭"].exists)
+        app.buttons["quick-recording-menu"].tap()
+        app.buttons["内部录音"].firstMatch.tap()
+        XCTAssertTrue(app.buttons["仅内部音"].firstMatch.waitForExistence(timeout: 3))
+        XCTAssertTrue(app.buttons["内部音＋麦克风"].firstMatch.exists)
+        snapshot(app, "quick-menu-audio-modes")
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        app.buttons["通话录音（方案说明）"].firstMatch.tap()
+        XCTAssertTrue(app.staticTexts["通话采集尚未接通"].waitForExistence(timeout: 3))
+        snapshot(app, "call-recording-limit")
+    }
     func testCompactLayoutTrackCheckPlaybackAndScrubCommit() {
         continueAfterFailure = false
         let app = XCUIApplication()
