@@ -25,8 +25,8 @@ public struct SessionReport: Codable, Identifiable, Sendable {
     public var channelCount: UInt32 = 0
     public var segments: [AudioSegment] = []
     public var error: String?
-    public let microphoneRecorded = false
-    public let videoSaved = false
+    public private(set) var microphoneRecorded = false
+    public private(set) var videoSaved = false
 
     public init(id: UUID = UUID(), startedAt: Date = Date()) {
         self.id = id

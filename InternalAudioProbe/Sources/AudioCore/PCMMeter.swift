@@ -10,7 +10,7 @@ public enum PCMMeter {
               format.mFormatID == kAudioFormatLinearPCM else { return nil }
         let channels = max(1, Int(format.mChannelsPerFrame))
         let list = AudioBufferList.allocate(maximumBuffers: channels)
-        defer { list.deallocate() }
+        defer { list.unsafeMutablePointer.deallocate() }
         var retained: CMBlockBuffer?
         let status = CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(
             sample, bufferListSizeNeededOut: nil,
