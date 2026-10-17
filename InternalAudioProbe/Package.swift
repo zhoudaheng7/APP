@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "InternalAudioProbe",
-    platforms: [.macOS(.v15), .iOS("27.0")],
+    platforms: [.macOS("15.0"), .iOS("27.0")],
     products: [.library(name: "AudioCore", targets: ["AudioCore"])],
     targets: [
         .target(name: "AudioCore", path: "Sources/AudioCore"),

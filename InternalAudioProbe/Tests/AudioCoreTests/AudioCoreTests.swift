@@ -27,6 +27,12 @@ final class AudioCoreTests: XCTestCase {
             XCTAssertEqual(video.count, 0)
             let duration = try await asset.load(.duration)
             XCTAssertGreaterThan(CMTimeGetSeconds(duration), 0)
+            let decoded = try AVAudioFile(forReading: writer.folder.appendingPathComponent(segment.filename))
+            let pcm = AVAudioPCMBuffer(pcmFormat: decoded.processingFormat, frameCapacity: AVAudioFrameCount(decoded.length))!
+            try decoded.read(into: pcm)
+            XCTAssertGreaterThan(pcm.frameLength, 0)
+            let maximum = (0..<Int(pcm.frameLength)).map { abs(pcm.floatChannelData![0][$0]) }.max() ?? 0
+            XCTAssertGreaterThan(maximum, 0.01, "The encoded file must contain an audible signal")
         }
         let files = try FileManager.default.contentsOfDirectory(at: writer.folder, includingPropertiesForKeys: nil)
         XCTAssertTrue(files.allSatisfy { ["m4a", "json"].contains($0.pathExtension) })

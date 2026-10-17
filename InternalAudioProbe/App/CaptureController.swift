@@ -69,6 +69,7 @@ final class CaptureController: NSObject, ObservableObject {
             try capture.addStreamOutput(sink, type: .audio, sampleHandlerQueue: sink.callbackQueue)
             stream = capture
             try await capture.startCapture()
+            guard phase == .starting else { return }
             phase = .recording
             status = "正在录内部音，可切换到播放 App。麦克风关闭；画面不保存。"
             releasePicker()
@@ -182,7 +183,7 @@ extension CaptureController: SCContentSharingPickerObserver {
 private final class AudioSink: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
     let callbackQueue = DispatchQueue(label: "com.lightsquare.capture-callbacks", qos: .userInitiated)
     let writer: AudioSegmentWriter
-    var onStopped: (@Sendable (String) -> Void)?
+    var onStopped: (@Sendable (String?) -> Void)?
     init(writer: AudioSegmentWriter) { self.writer = writer }
     func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
         if type == .audio { writer.append(sampleBuffer) }
@@ -190,7 +191,12 @@ private final class AudioSink: NSObject, SCStreamOutput, SCStreamDelegate, @unch
         // Microphone output is never registered or consumed.
     }
     func stream(_ stream: SCStream, didStopWithError error: Error) {
-        onStopped?("系统采集已结束：\(error.localizedDescription)")
+        let systemError = error as NSError
+        if systemError.domain == SCStreamError.errorDomain && systemError.code == SCStreamError.Code.userStopped.rawValue {
+            onStopped?(nil)
+        } else {
+            onStopped?("系统采集已结束：\(error.localizedDescription)")
+        }
     }
 }
 
