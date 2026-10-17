@@ -3,7 +3,7 @@ import Foundation
 import ReplayKit
 
 /// Runs independently of the containing app, including starts from Control Center.
-final class SampleHandler: RPBroadcastSampleHandler {
+final class SampleHandler: RPBroadcastSampleHandler, @unchecked Sendable {
     private var writer: AudioSegmentWriter?
     private var activityTimer: DispatchSourceTimer?
     private var activeMarker: URL?
@@ -30,7 +30,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
             let heartbeat = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
             heartbeat.schedule(deadline: .now(), repeating: 2)
             heartbeat.setEventHandler {
-                try? FileManager.default.setAttributes([.modificationDate: Date()], atPath: marker.path)
+                try? FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: marker.path)
             }
             heartbeat.resume()
             activityTimer = heartbeat

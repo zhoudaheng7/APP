@@ -9,7 +9,7 @@ struct RecorderView: View {
     @State private var selected: Set<UUID> = []
     @State private var pendingDelete: Set<UUID> = []
     @State private var confirmDelete = false
-    private var idle: Bool { recorder.phase == .idle && !recorder.libraryWorking }
+    private var idle: Bool { recorder.phase == .idle && !recorder.libraryWorking && !recorder.externalRecording }
 
     var body: some View {
         NavigationStack {
@@ -29,7 +29,7 @@ struct RecorderView: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .tint(recorder.phase == .idle ? .blue : .red)
-                    .disabled([.starting, .stopping].contains(recorder.phase) || recorder.libraryWorking)
+                    .disabled([.starting, .stopping].contains(recorder.phase) || recorder.libraryWorking || recorder.externalRecording)
                     Text(recorder.status).font(.callout)
                 }
                 if let report = recorder.report {
@@ -43,6 +43,10 @@ struct RecorderView: View {
                     }
                 }
                 Section("从控制中心直接开录") {
+                    if recorder.externalRecording {
+                        Label("控制中心录音进行中，请先从系统录屏按钮停止。", systemImage: "record.circle.fill")
+                            .foregroundStyle(.red)
+                    }
                     Text("下拉控制中心 → 长按「录屏」→ 选择「内录 · 仅音频」→ 开始广播。")
                         .font(.callout)
                     Text(recorder.controlCenterStatus).font(.caption).foregroundStyle(.secondary)

@@ -16,6 +16,7 @@ final class CaptureController: NSObject, ObservableObject {
     @Published var checks: [UUID: AudioCheck] = [:]
     @Published var libraryWorking = false
     @Published var libraryMessage = ""
+    @Published var externalRecording = false
     private var stream: SCStream?
     private var sink: AudioSink?
     private var writer: AudioSegmentWriter?
@@ -31,7 +32,7 @@ final class CaptureController: NSObject, ObservableObject {
     }
 
     func start() {
-        guard phase == .idle, !libraryWorking else { return }
+        guard phase == .idle, !libraryWorking, !externalRecording else { return }
         let picker = SCContentSharingPicker.shared
         guard picker.isAvailable else { status = "当前设备无法打开系统采集选择器。"; return }
         guard !picker.isActive else { status = "已有其他屏幕采集正在使用选择器，请先停止。"; return }
@@ -146,6 +147,7 @@ final class CaptureController: NSObject, ObservableObject {
             guard let report = try? SessionReport.load(from: folder) else { return nil }
             return SavedSession(report: report, folder: folder)
         }.sorted { $0.report.startedAt > $1.report.startedAt }
+        externalRecording = sessions.contains { $0.isActive }
     }
 
     func inspect(_ session: SavedSession) async {
