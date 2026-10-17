@@ -1,0 +1,59 @@
+name: Build Internal Audio Probe IPA
+on:
+  push:
+    branches: [codex/internal-audio-probe]
+    paths: [InternalAudioProbe/**, .github/workflows/internal-audio-probe.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: internal-audio-probe-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  device-ipa:
+    runs-on: xcode-27
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: bash
+        working-directory: InternalAudioProbe
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify Xcode and iPhoneOS SDK
+        run: |
+          set -euo pipefail
+          export DEVELOPER_DIR=/Applications/Xcode_27.app/Contents/Developer
+          echo "DEVELOPER_DIR=$DEVELOPER_DIR" >> "$GITHUB_ENV"
+          mkdir -p dist
+          xcodebuild -version | tee dist/toolchain.txt
+          xcrun --sdk iphoneos --show-sdk-version | tee -a dist/toolchain.txt
+          xcrun --sdk iphoneos --show-sdk-version | grep -E '^27\.'
+      - name: Test actual audio encoding and inspect file tracks
+        run: |
+          set -euo pipefail
+          swift test 2>&1 | tee dist/audio-tests.log
+      - name: Generate Xcode project
+        run: |
+          set -euo pipefail
+          command -v xcodegen >/dev/null || brew install xcodegen
+          xcodegen generate
+      - name: Build unsigned arm64 iPhone application
+        run: |
+          set -euo pipefail
+          xcodebuild build -project InternalAudioProbe.xcodeproj -scheme InternalAudioProbe \
+            -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' \
+            -derivedDataPath build/device CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
+            2>&1 | tee dist/iphone-build.log
+      - name: Package and verify IPA
+        run: |
+          set -euo pipefail
+          python3 scripts/package_ipa.py build/device/Build/Products/Release-iphoneos/InternalAudioProbe.app dist/InternalAudioProbe-unsigned.ipa
+          git rev-parse HEAD > dist/source-commit.txt
+          cp README.md dist/INSTALL.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: InternalAudioProbe-iPhone
+          path: InternalAudioProbe/dist/
+          if-no-files-found: warn
+          retention-days: 14

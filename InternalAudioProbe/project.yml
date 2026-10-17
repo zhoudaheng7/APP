@@ -1,0 +1,34 @@
+name: InternalAudioProbe
+options:
+  bundleIdPrefix: com.lightsquare
+  deploymentTarget:
+    iOS: "27.0"
+packages:
+  AudioCore:
+    path: .
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    CODE_SIGNING_ALLOWED: NO
+    CODE_SIGNING_REQUIRED: NO
+    DEVELOPMENT_TEAM: ""
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+targets:
+  InternalAudioProbe:
+    type: application
+    platform: iOS
+    sources: [App]
+    dependencies:
+      - package: AudioCore
+        product: AudioCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.lightsquare.internalaudioprobe
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SUPPORTS_MACCATALYST: NO
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: App/Info.plist
+        LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks"
+    scheme:
+      gatherCoverageData: false
