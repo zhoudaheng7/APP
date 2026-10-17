@@ -94,6 +94,41 @@ final class RecordingInteractionTests: XCTestCase {
         XCTAssertGreaterThan((final.first ?? 0) * 60 + (final.last ?? 0), 45)
         XCTAssertEqual(finalTime.components(separatedBy: " / ").last, time.components(separatedBy: " / ").last)
     }
+    func testPlayFromMiddleAfterPausedDragAdvancesWithoutMoreTouches() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-performance-probe"]
+        app.launch()
+        let play = app.buttons["播放"].firstMatch
+        XCTAssertTrue(play.waitForExistence(timeout: 10))
+        reveal(play, in: app)
+        let slider = app.descendants(matching: .any)["audio-progress"].firstMatch
+        let clock = app.staticTexts["playback-time"].firstMatch
+        XCTAssertTrue(slider.waitForExistence(timeout: 5))
+        let start = slider.coordinate(withNormalizedOffset: CGVector(dx: 9 / slider.frame.width, dy: 0.5))
+        start.press(forDuration: 0.1,
+            thenDragTo: slider.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)))
+        expectation(for: NSPredicate(format: "value CONTAINS %@", "定位提交 1"), evaluatedWith: slider)
+        waitForExpectations(timeout: 5)
+        XCTAssertTrue(app.staticTexts["已暂停"].firstMatch.exists)
+        let middleSecond = elapsedSeconds(clock)
+        let middlePercent = progressPercent(slider)
+        XCTAssertGreaterThan(middleSecond, 25)
+        XCTAssertLessThan(middleSecond, 40)
+        let total = clock.label.components(separatedBy: " / ").last
+        play.tap()
+        XCTAssertTrue(app.staticTexts["正在播放"].firstMatch.waitForExistence(timeout: 3))
+        expectation(for: NSPredicate { _, _ in
+            self.elapsedSeconds(clock) >= middleSecond + 3 && self.progressPercent(slider) > middlePercent
+        }, evaluatedWith: slider)
+        waitForExpectations(timeout: 12)
+        XCTAssertTrue((slider.value as? String ?? "").contains("定位提交 1"))
+        XCTAssertEqual(clock.label.components(separatedBy: " / ").last, total)
+        print("AUTOPLAY_METRICS seekThenPlayTime=\(clock.label) progress=\(slider.value ?? "")")
+        snapshot(app, "play-from-middle-progress-without-more-touch")
+        app.buttons["暂停"].firstMatch.tap()
+        XCTAssertTrue(app.staticTexts["已暂停"].firstMatch.waitForExistence(timeout: 2))
+    }
     private func elapsedSeconds(_ clock: XCUIElement) -> Int {
         clock.label.components(separatedBy: " / ")[0].split(separator: ":")
             .reduce(0) { $0 * 60 + (Int($1) ?? 0) }
