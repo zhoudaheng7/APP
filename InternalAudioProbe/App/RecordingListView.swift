@@ -102,6 +102,9 @@ struct RecorderView: View {
                     Text(report.audioSeconds > 5 && report.nonSilentBuffers == 0 ? "暂未检测到声音" : "有声缓冲 \(report.nonSilentBuffers)")
                         .foregroundStyle(report.audioSeconds > 5 && report.nonSilentBuffers == 0 ? Color.orange : .secondary)
                 }.font(.system(size: 11, design: .monospaced))
+                if let error = report.error {
+                    Text(error).font(.system(size: 11)).foregroundStyle(.orange).lineLimit(2)
+                }
             } else {
                 Text(recorder.externalRecording ? "控制中心正在录音，请从系统录屏按钮停止。"
                      : recorder.status == "准备好后点开始，再切到课程或其他播放 App。" ? "就绪 · 开始后切到播放 App" : recorder.status)

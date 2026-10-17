@@ -211,7 +211,7 @@ final class AudioTimelineView: UIView {
         let metrics: [String: Any] = ["requestedHz": requestedHz, "frameSamples": frameCount,
             "observedCallbackHz": frameSeconds > 0 ? Double(frameCount) / frameSeconds : 0,
             "waveformGeometryBuilds": geometryBuilds, "seekCommits": playback?.seekCommitCount ?? 0,
-            "swiftUIFramePublications": 0, "nativeDeviceFPSVerified": false]
+            "updatesSwiftUIOnEveryFrame": false, "nativeDeviceFPSVerified": false]
         let root = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         try? JSONSerialization.data(withJSONObject: metrics, options: [.prettyPrinted, .sortedKeys])
             .write(to: root.appendingPathComponent("UIProbe.json"), options: .atomic)

@@ -17,6 +17,7 @@ final class RecordingInteractionTests: XCTestCase {
         let check = app.buttons["检查音轨"].firstMatch
         reveal(check, in: app)
         XCTAssertLessThan(app.otherElements["recording-card"].firstMatch.frame.height, 210)
+        print("LAYOUT_METRICS panelHeight=\(panel.frame.height) recordingCardHeight=\(app.otherElements["recording-card"].firstMatch.frame.height)")
         check.tap()
         let result = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "0 条视频轨")).firstMatch
         XCTAssertTrue(result.waitForExistence(timeout: 10))
