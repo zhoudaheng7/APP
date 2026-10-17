@@ -47,7 +47,7 @@ struct RecorderView: View {
             }
             .listStyle(.plain).scrollContentBackground(.hidden)
             .background(RecorderTheme.background)
-            .navigationTitle("内录").navigationBarTitleDisplayMode(.inline)
+            .navigationTitle("声屿").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button(selecting ? "完成" : "选择") { selecting.toggle(); selected.removeAll() }
@@ -116,7 +116,7 @@ struct RecorderView: View {
                 Spacer()
                 Button("使用说明") { showHelp = true }.font(.system(size: 11)).accessibilityIdentifier("recording-help")
             }
-            Text("长按「录屏」→「内录 · 仅音频」→ 开始广播")
+            Text("长按「录屏」→「声屿 · 仅音频」→ 开始广播")
                 .font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1).minimumScaleFactor(0.85)
         }
         .recorderCard()
@@ -148,7 +148,7 @@ struct RecorderView: View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 16) {
                 Label("从控制中心开始", systemImage: "record.circle").font(.headline)
-                Text("下拉控制中心，长按「录屏」，选择「内录 · 仅音频」，再点「开始广播」。停止时点击系统录屏按钮，之后回到这里试听和导出。")
+                Text("下拉控制中心，长按「录屏」，选择「声屿 · 仅音频」，再点「开始广播」。停止时点击系统录屏按钮，之后回到这里试听和导出。")
                 Text("也可以直接使用首页的「开始内录」。录音会持续保存，不按分钟切段；程序只保存内部声音。")
                 Text(recorder.controlCenterStatus).font(.caption).foregroundStyle(.secondary)
                 Text("合并生成新录音并保留原件。删除无法撤销，重要录音请先导出。").font(.caption).foregroundStyle(.secondary)

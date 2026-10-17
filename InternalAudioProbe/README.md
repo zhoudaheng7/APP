@@ -1,4 +1,4 @@
-# 内录验证 0.3.1 · iPhone iOS 27
+# 声屿 0.3.1 · iPhone iOS 27
 
 ## 0.3.1 首次播放进度修复
 
@@ -54,7 +54,7 @@ Apple 官方参考：
 1. 将真实构建产物 `InternalAudioProbe-unsigned.ipa` 交给你们的企业签名工具。
 2. 由签名服务正确生成签名和 provisioning profile 后安装；不需要给本工程提供证书私钥。
 3. 工具须保留 `PlugIns/InternalAudioBroadcast.appex`、`UIBackgroundModes: screen-capture` 和 iOS 27 最低系统要求；主 App 与扩展需要同一有效 App Group 权限，具体见 SIGNING.md。
-4. 可打开 App 点「开始内录」；或直接长按控制中心「录屏」→ 选择「内录 · 仅音频」→ 开始广播。后者不需要预先打开主 App，但需要共享容器权限正确。
+4. 可打开声屿点「开始内录」；或直接长按控制中心「录屏」→ 选择「声屿 · 仅音频」→ 开始广播。后者不需要预先打开主 App，但需要共享容器权限正确。
 5. 切到播放来源 App，播放 30 秒以上；App 内启动的录音回到 App 停止，控制中心启动的录音从系统录屏按钮停止。
 6. 点「检查音轨」，应显示音轨大于 0、视频轨为 0；逐段试听，确认内容确实来自播放来源。
 7. 点「导出音频」只保存 M4A。JSON 诊断保留在 App 内；原 Documents 音频也可通过文件共享访问。
