@@ -32,6 +32,10 @@ def package(app: Path, destination: Path) -> dict:
     info = plistlib.loads((app / 'Info.plist').read_bytes())
     binary = app / info['CFBundleExecutable']
     evidence = verify_binary(binary.read_bytes())
+    assert info['CFBundleDisplayName'] == '声屿'
+    assert {p.name for p in (app / 'PlugIns').glob('*.appex')} == {'InternalAudioBroadcast.appex', 'RecordingActivity.appex'}
+    for text in ['通话录音', '通话采集', 'AirBeep', 'TrollRecorder', 'AirliftSilence', '方案说明', 'UIProbe.json']:
+        assert text.encode('utf-8') not in binary.read_bytes(), f'Unexpected release content: {text}'
     extension = app / 'PlugIns/InternalAudioBroadcast.appex'
     ext_info = plistlib.loads((extension / 'Info.plist').read_bytes())
     ext_binary = verify_binary((extension / ext_info['CFBundleExecutable']).read_bytes())
@@ -72,6 +76,7 @@ def package(app: Path, destination: Path) -> dict:
                     fileCount=len(files), size=destination.stat().st_size,
                     sha256=hashlib.sha256(destination.read_bytes()).hexdigest(), signed=False,
                     microphonePermission=True, microphoneDefault=False, backgroundModes=info['UIBackgroundModes'],
+                    nativePhoneFeature=False, performanceDiagnosticsInRelease=False,
                     liveActivity={'bundleIdentifier': activity_info['CFBundleIdentifier'], **activity_binary},
                     extension={'bundleIdentifier': ext_info['CFBundleIdentifier'], **ext_binary},
                     appGroup=info['AudioAppGroupIdentifier'], iconAssets=True, highRefreshEnabled=True)

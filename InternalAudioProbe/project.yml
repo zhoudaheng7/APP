@@ -12,47 +12,10 @@ settings:
     CODE_SIGNING_ALLOWED: NO
     CODE_SIGNING_REQUIRED: NO
     DEVELOPMENT_TEAM: ""
-    MARKETING_VERSION: "0.4.0"
-    CURRENT_PROJECT_VERSION: "5"
+    MARKETING_VERSION: "0.4.1"
+    CURRENT_PROJECT_VERSION: "6"
     AUDIO_APP_GROUP: group.com.lightsquare.internalaudioprobe
 targets:
-  CallAudioProbe:
-    type: application
-    platform: iOS
-    sources:
-      - Probe
-      - App/Assets.xcassets
-      - path: App/Resources/HaishinKit-LICENSE.txt
-        buildPhase: resources
-    dependencies:
-      - package: AudioCore
-        product: AudioCore
-    settings:
-      base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.lightsquare.callaudioprobe
-        PRODUCT_NAME: CallAudioProbe
-        MARKETING_VERSION: "0.1.0"
-        CURRENT_PROJECT_VERSION: "1"
-        TARGETED_DEVICE_FAMILY: "1,2"
-        SUPPORTS_MACCATALYST: NO
-        GENERATE_INFOPLIST_FILE: NO
-        INFOPLIST_FILE: Probe/Info.plist
-        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-        LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks"
-    scheme:
-      gatherCoverageData: false
-      testTargets: [CallAudioProbeUITests]
-  CallAudioProbeUITests:
-    type: bundle.ui-testing
-    platform: iOS
-    sources: [ProbeUITests]
-    dependencies:
-      - target: CallAudioProbe
-    settings:
-      base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.lightsquare.callaudioprobe.uitests
-        GENERATE_INFOPLIST_FILE: YES
-        TEST_TARGET_NAME: CallAudioProbe
   InternalAudioProbe:
     type: application
     platform: iOS

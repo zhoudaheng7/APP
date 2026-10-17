@@ -12,7 +12,7 @@ final class CaptureController: NSObject, ObservableObject {
     static let shared = CaptureController()
     enum Phase: String { case idle, selecting, starting, recording, stopping }
     @Published var phase: Phase = .idle
-    @Published var status = "准备好后点开始，再切到课程或其他播放 App。"
+    @Published var status = "就绪"
     @Published var report: SessionReport?
     @Published var sessions: [SavedSession] = []
     @Published var inspection = ""
@@ -47,7 +47,7 @@ final class CaptureController: NSObject, ObservableObject {
                       raw == AVAudioSession.InterruptionType.began.rawValue else { return }
                 Task { @MainActor in
                     guard let self, self.microphoneEnabled, self.phase == .recording else { return }
-                    await self.stop(reason: "麦克风被通话或系统中断，已保存收到的音频。")
+                    await self.stop(reason: "麦克风已中断")
                 }
             }
         refreshSessions()
@@ -74,7 +74,7 @@ final class CaptureController: NSObject, ObservableObject {
         guard picker.isAvailable else { phase = .idle; throw StartError.unavailable }
         guard !picker.isActive else { phase = .idle; throw StartError.busy }
         phase = .selecting
-        status = "请在系统选择器中允许采集；本程序不保存画面。"
+        status = "请确认开始录制"
         report = nil
         inspection = ""
         var configuration = SCContentSharingPickerConfiguration()
@@ -86,7 +86,7 @@ final class CaptureController: NSObject, ObservableObject {
         picker.present()
 #else
         phase = .idle
-        status = "模拟器不支持系统内录；请在 iPhone 真机录音。这里可验证录音库与播放界面。"
+        status = "请在 iPhone 上录制"
 #endif
     }
 
@@ -121,7 +121,7 @@ final class CaptureController: NSObject, ObservableObject {
             if ActivityAuthorizationInfo().areActivitiesEnabled {
                 liveActivity = try Activity.request(attributes: RecordingActivityAttributes(
                     sessionID: output.folder.lastPathComponent, startedAt: Date(), microphone: microphoneEnabled),
-                    content: ActivityContent(state: .init(message: "正在录制 · 长按灵动岛可停止"), staleDate: nil), pushType: nil)
+                    content: ActivityContent(state: .init(message: "录制中"), staleDate: nil), pushType: nil)
             }
             try await capture.startCapture()
             guard phase == .starting, writer === output else { try? await capture.stopCapture(); return }
@@ -132,8 +132,8 @@ final class CaptureController: NSObject, ObservableObject {
             }
             guard phase == .starting else { return }
             phase = .recording
-            status = microphoneEnabled ? "正在录内部音＋麦克风；画面不保存。" : "正在录内部音；麦克风关闭，画面不保存。"
-            if liveActivity == nil { status += " 灵动岛状态未启用，请从 App 或系统停止。" }
+            status = "录制中"
+            if liveActivity == nil { status += " · 请从 App 或系统停止" }
             releasePicker()
         } catch {
             await stop(reason: "启动失败：\(error.localizedDescription)")
@@ -144,7 +144,7 @@ final class CaptureController: NSObject, ObservableObject {
     func stop(reason: String? = nil) async {
         guard phase != .idle, phase != .stopping else { return }
         phase = .stopping
-        status = "正在完成音频分段，请稍候。"
+        status = "正在保存…"
 #if canImport(ScreenCaptureKit)
         releasePicker()
 #endif
@@ -181,19 +181,19 @@ final class CaptureController: NSObject, ObservableObject {
             else { writer.finish(reason: reason, completion: completion) }
         }
         if let liveActivity {
-            let message = completed.segments.contains(where: { $0.state == "complete" }) ? "已停止，请试听确认" : "已停止，请打开声屿检查文件"
+            let message = completed.segments.contains(where: { $0.state == "complete" }) ? "已保存" : "录音需检查"
             await liveActivity.end(ActivityContent(state: .init(message: message), staleDate: nil), dismissalPolicy: .immediate)
             self.liveActivity = nil
         }
         report = completed
         phase = .idle
         switch completed.state {
-        case "no-audio": status = "未收到内部音频。请确认来源正在播放，或换一个 App 验证。"
-        case "silent": status = "收到的内部音频持续静音；这次不能算内录成功。"
-        case "interrupted": status = "录制中断：\(completed.error ?? "请查看分段状态")"
-        default: status = "已保存纯音频。试听后再确认这次录制是否成功。"
+        case "no-audio": status = "未收到声音，请检查音源"
+        case "silent": status = "录音为静音，请检查音源"
+        case "interrupted": status = "录制中断：\(completed.error ?? "请检查录音")"
+        default: status = "已保存"
         }
-        if completed.microphoneRequested == true && !completed.microphoneRecorded { status += " 注意：未收到麦克风音频。" }
+        if completed.microphoneRequested == true && !completed.microphoneRecorded { status += " · 未收到麦克风声音" }
         refreshSessions()
         if let session = sessions.first(where: { $0.id == completed.id }) { await inspect(session) }
         endBackgroundTask()
@@ -214,10 +214,10 @@ final class CaptureController: NSObject, ObservableObject {
         case busy, permission, unavailable, noActiveRecording
         var errorDescription: String? {
             switch self {
-            case .busy: return "已有录音或其他操作进行中，请先停止。"
-            case .permission: return "麦克风权限未开启。请在设置中允许声屿访问麦克风，或选择仅内部音。"
-            case .unavailable: return "当前设备无法打开系统采集选择器。"
-            case .noActiveRecording: return "这条录音已停止或系统已结束采集，请打开声屿检查保存结果。"
+            case .busy: return "请先结束当前操作"
+            case .permission: return "请在设置中允许麦克风访问，或选择仅内部音"
+            case .unavailable: return "无法开启录制"
+            case .noActiveRecording: return "录音已结束，请返回查看"
             }
         }
     }
@@ -242,9 +242,9 @@ final class CaptureController: NSObject, ObservableObject {
         var roots = [root]
         if let sharedRoot = RecordingPaths.sharedRoot {
             roots.append(sharedRoot)
-            controlCenterStatus = "停止控制中心录音后，回到这里即可试听和导出。"
+            controlCenterStatus = "停止后可试听和导出"
         } else {
-            controlCenterStatus = "控制中心入口需要企业签名保留扩展和共享容器权限。若启动提示共享容器错误，请联系签名服务；App 内开始内录仍可使用。"
+            controlCenterStatus = "控制中心录音不可用，请从 App 开始"
         }
         let folders = roots.flatMap { (try? FileManager.default.contentsOfDirectory(at: $0, includingPropertiesForKeys: nil)) ?? [] }
         sessions = folders.compactMap { folder in
@@ -256,7 +256,7 @@ final class CaptureController: NSObject, ObservableObject {
 
     func inspect(_ session: SavedSession) async {
         guard checks[session.id]?.checking != true else { return }
-        checks[session.id] = AudioCheck(checking: true, passed: false, message: "正在读取音频文件并检查轨道…")
+        checks[session.id] = AudioCheck(checking: true, passed: false, message: "检查中…")
         var audio = 0, video = 0
         var errors: [String] = []
         for url in session.audioFiles {
@@ -268,9 +268,9 @@ final class CaptureController: NSObject, ObservableObject {
         }
         let message: String
         if !errors.isEmpty { message = "文件检查失败：" + errors.joined(separator: "；") }
-        else if audio == 0 { message = "未发现可检查的音轨。" }
-        else if video > 0 { message = "异常：文件含 \(video) 条视频轨，验证未通过。" }
-        else { message = "文件轨道检查：\(audio) 条音轨，0 条视频轨。仍需试听确认内容。" }
+        else if audio == 0 { message = "未发现音轨" }
+        else if video > 0 { message = "含 \(video) 条视频轨" }
+        else { message = "\(audio)音轨 · 无视频" }
         inspection = message
         checks[session.id] = AudioCheck(checking: false, passed: errors.isEmpty && audio > 0 && video == 0, message: message)
         // Inspection JSON is metadata only; never includes captured samples or credentials.
@@ -287,16 +287,16 @@ final class CaptureController: NSObject, ObservableObject {
         let chosen = sessions.filter { ids.contains($0.id) }.sorted { $0.report.startedAt < $1.report.startedAt }
         guard !chosen.isEmpty, chosen.allSatisfy({ !$0.isActive && !$0.audioFiles.isEmpty }),
               chosen.flatMap(\.audioFiles).count > 1 else {
-            libraryMessage = "请选择至少两份完整音频；正在录制的记录请先停止。"
+            libraryMessage = "请选择至少两份完整音频"
             return
         }
         libraryWorking = true
-        libraryMessage = "正在合并音频，原记录会保留…"
+        libraryMessage = "正在合并…"
         defer { libraryWorking = false }
         do {
             _ = try await RecordingLibrary.merge(files: chosen.flatMap(\.audioFiles), sourceIDs: chosen.map(\.id), root: root)
             refreshSessions()
-            libraryMessage = "已生成一条合并录音，原记录仍保留。"
+            libraryMessage = "已合并，原件保留"
         } catch { libraryMessage = "合并失败：\(error.localizedDescription)" }
     }
 
@@ -333,7 +333,7 @@ extension CaptureController: SCContentSharingPickerObserver {
             guard self.phase == .selecting else { return }
             self.releasePicker()
             self.phase = .idle
-            self.status = "已取消系统授权，未开始录制。"
+            self.status = "已取消"
         }
     }
     nonisolated func contentSharingPickerStartDidFailWithError(_ error: Error) {

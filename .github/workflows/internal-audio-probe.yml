@@ -58,25 +58,8 @@ jobs:
           cp App/Resources/HaishinKit-LICENSE.txt dist/HaishinKit-LICENSE.txt
           cp App/AudioCapture.entitlements dist/MainApp.entitlements
           cp Broadcast/AudioCapture.entitlements dist/Broadcast.entitlements
-      - name: Test standalone PCM statistics
-        run: |
-          set -euo pipefail
-          mkdir -p ProbeTests/Sources/ProbeStats
-          cp Probe/ProbeSignalStats.swift ProbeTests/Sources/ProbeStats/ProbeSignalStats.swift
-          swift test --package-path ProbeTests 2>&1 | tee dist/probe-tests.log
-      - name: Build independent call-audio experiment for iPhone
-        run: |
-          set -euo pipefail
-          xcodebuild build -project InternalAudioProbe.xcodeproj -scheme CallAudioProbe \
-            -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' \
-            -derivedDataPath build/call-probe CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
-            2>&1 | tee dist/call-probe-build.log
-          python3 scripts/package_call_probe.py build/call-probe/Build/Products/Release-iphoneos/CallAudioProbe.app dist/CallAudioProbe-0.1.0-unsigned.ipa
-          cp Design/CALL-CAPTURE.md dist/CALL-CAPTURE.txt
       - name: Verify playback feedback and track-check UI in iPhone Simulator
         run: bash scripts/run_ui_smoke.sh
-      - name: Check standalone probe UI and simulator capability reporting
-        run: bash scripts/run_probe_ui_smoke.sh
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
@@ -84,7 +67,6 @@ jobs:
           path: |
             InternalAudioProbe/dist/
             !InternalAudioProbe/dist/Interaction.xcresult/**
-            !InternalAudioProbe/dist/ProbeInteraction.xcresult/**
             !InternalAudioProbe/dist/ui-fixture/**
           if-no-files-found: warn
           retention-days: 14

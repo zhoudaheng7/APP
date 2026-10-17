@@ -12,7 +12,7 @@ final class SampleHandler: RPBroadcastSampleHandler, @unchecked Sendable {
     override func broadcastStarted(withSetupInfo setupInfo: [String: NSObject]?) {
         guard let root = RecordingPaths.sharedRoot else {
             finishBroadcastWithError(NSError(domain: "InternalAudioProbe", code: 1, userInfo: [
-                NSLocalizedDescriptionKey: "企业签名未启用录音共享容器。请为主 App 和广播扩展配置相同的 App Group 后重新签名。App 内的开始内录仍可使用。"
+                NSLocalizedDescriptionKey: "共享存储不可用，请从声屿 App 开始录音。"
             ]))
             return
         }

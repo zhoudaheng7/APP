@@ -11,7 +11,7 @@ enum RecordingChoice: String, AppEnum {
 
 struct StartRecordingIntent: AppIntent {
     static var title: LocalizedStringResource = "开始声屿内录"
-    static var description = IntentDescription("选择仅内部音或加入麦克风，然后确认系统采集授权。")
+    static var description = IntentDescription("选择录音模式，确认系统授权后开始。")
     static var openAppWhenRun = true
     @Parameter(title: "录音模式", default: .internalOnly) var mode: RecordingChoice
     init() {}
@@ -19,7 +19,7 @@ struct StartRecordingIntent: AppIntent {
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
         try await CaptureController.shared.prepareStart(microphone: mode == .withMicrophone)
-        return .result(dialog: "请在系统选择器中确认开始采集。")
+        return .result(dialog: "请确认系统授权。")
     }
 }
 
@@ -37,7 +37,7 @@ struct StartInternalAudioIntent: AppIntent {
     static var openAppWhenRun = true
     @MainActor func perform() async throws -> some IntentResult & ProvidesDialog {
         try await CaptureController.shared.prepareStart(microphone: false)
-        return .result(dialog: "请确认系统采集授权。麦克风关闭。")
+        return .result(dialog: "请确认系统授权。")
     }
 }
 
@@ -46,7 +46,7 @@ struct StartMixedAudioIntent: AppIntent {
     static var openAppWhenRun = true
     @MainActor func perform() async throws -> some IntentResult & ProvidesDialog {
         try await CaptureController.shared.prepareStart(microphone: true)
-        return .result(dialog: "请确认系统采集授权。将混合内部音与麦克风。")
+        return .result(dialog: "请确认系统授权。")
     }
 }
 

@@ -41,7 +41,11 @@ final class AudioTimelineView: UIView {
     private var lastSecond = -1
     private var lastPercent = -1
     private var active: Bool { playback?.currentURL == file && file != nil }
+#if DEBUG
     private let probe = ProcessInfo.processInfo.arguments.contains("--ui-performance-probe")
+#else
+    private let probe = false
+#endif
     private var frameCount = 0
     private var frameSeconds: Double = 0
     private var lastTimestamp: Double = 0
@@ -233,6 +237,7 @@ final class AudioTimelineView: UIView {
         updateLink()
     }
     private func saveProbe() {
+#if DEBUG
         guard probe else { return }
         let metrics: [String: Any] = ["requestedHz": requestedHz, "frameSamples": frameCount,
             "observedCallbackHz": frameSeconds > 0 ? Double(frameCount) / frameSeconds : 0,
@@ -242,11 +247,14 @@ final class AudioTimelineView: UIView {
         let root = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         try? JSONSerialization.data(withJSONObject: metrics, options: [.prettyPrinted, .sortedKeys])
             .write(to: root.appendingPathComponent("UIProbe.json"), options: .atomic)
+#endif
     }
     private func recordProbeEvent(_ event: String) {
+#if DEBUG
         guard probe else { return }
         if gestureEvents.count >= 32 { gestureEvents.removeFirst() }
         gestureEvents.append("\(event): touch=\(slider.trackingGesture), tracking=\(slider.isTracking), dragging=\(dragging), seeks=\(playback?.seekCommitCount ?? 0)")
+#endif
     }
     private static func clock(_ value: Double) -> String {
         let seconds = max(0, Int(value.isFinite ? value : 0))

@@ -1,30 +1,33 @@
 import XCTest
 
 final class RecordingInteractionTests: XCTestCase {
-    func testQuickMenuModesAndCallLimitAreVisible() {
+    func testQuickMenuModesAreDirectAndPhoneFeaturesRemoved() {
         continueAfterFailure = false
         let app = XCUIApplication()
         app.launch()
         app.buttons["recording-mode"].tap()
         app.buttons["内部音＋麦克风"].firstMatch.tap()
-        XCTAssertTrue(app.staticTexts["连续录制 · 不存画面 · 两路混成一个文件"].exists)
+        XCTAssertTrue(app.staticTexts["内部音与麦克风混为一份"].exists)
         app.buttons["recording-mode"].tap()
         app.buttons["仅内部音"].firstMatch.tap()
-        XCTAssertTrue(app.staticTexts["连续录制 · 不存画面 · 麦克风关闭"].exists)
+        XCTAssertTrue(app.staticTexts["麦克风关闭"].exists)
         app.buttons["quick-recording-menu"].tap()
-        app.buttons["内部录音"].firstMatch.tap()
-        XCTAssertTrue(app.buttons["仅内部音"].firstMatch.waitForExistence(timeout: 3))
+        let menu = app.navigationBars["选择模式"]
+        XCTAssertTrue(menu.waitForExistence(timeout: 3))
+        XCTAssertTrue(app.buttons["仅内部音"].firstMatch.exists)
         XCTAssertTrue(app.buttons["内部音＋麦克风"].firstMatch.exists)
-        snapshot(app, "quick-menu-audio-modes")
-        // Scope to the presented sheet: the background home navigation bar is
-        // still in the accessibility tree and its first button is "选择".
-        let modeNavigation = app.navigationBars["内部录音"]
-        XCTAssertTrue(modeNavigation.waitForExistence(timeout: 3))
-        modeNavigation.buttons.firstMatch.tap()
-        XCTAssertTrue(app.navigationBars["选择录音"].waitForExistence(timeout: 3))
-        app.buttons["通话录音（方案说明）"].firstMatch.tap()
-        XCTAssertTrue(app.staticTexts["通话采集尚未接通"].waitForExistence(timeout: 3))
-        snapshot(app, "call-recording-limit")
+        XCTAssertFalse(app.buttons["内部录音"].exists)
+        XCTAssertFalse(app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "通话")).firstMatch.exists)
+        snapshot(app, "compact-direct-recording-menu")
+        menu.buttons["取消"].tap()
+        app.buttons["recording-help"].tap()
+        XCTAssertTrue(app.navigationBars["使用说明"].waitForExistence(timeout: 3))
+        for text in ["通话", "AirBeep", "TrollRecorder", "企业签名", "方案说明", "验证版"] {
+            XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", text)).firstMatch.exists)
+        }
+        snapshot(app, "brief-help-no-development-discussion")
+        app.navigationBars["使用说明"].buttons["完成"].tap()
+        XCTAssertTrue(app.buttons["开始内录"].firstMatch.isHittable)
     }
     func testCompactLayoutTrackCheckPlaybackAndScrubCommit() {
         continueAfterFailure = false
@@ -37,15 +40,15 @@ final class RecordingInteractionTests: XCTestCase {
         XCTAssertTrue(app.buttons["开始内录"].firstMatch.isHittable)
         snapshot(app, "compact-capture-panel")
         app.buttons["recording-help"].tap()
-        XCTAssertTrue(app.staticTexts["从控制中心开始"].waitForExistence(timeout: 3))
-        app.buttons["知道了"].tap()
-        XCTAssertFalse(app.navigationBars["选择录音"].waitForExistence(timeout: 1), "Help must not also activate the quick-menu button in the same List row")
+        XCTAssertTrue(app.navigationBars["使用说明"].waitForExistence(timeout: 3))
+        app.navigationBars["使用说明"].buttons["完成"].tap()
+        XCTAssertFalse(app.navigationBars["选择模式"].waitForExistence(timeout: 1), "Help must not also activate the quick-menu button in the same List row")
         let check = app.buttons["检查音轨"].firstMatch
         reveal(check, in: app)
         XCTAssertLessThan(app.otherElements["recording-card"].firstMatch.frame.height, 170)
         print("LAYOUT_METRICS panelHeight=\(panel.frame.height) recordingCardHeight=\(app.otherElements["recording-card"].firstMatch.frame.height)")
         check.tap()
-        let result = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "0 条视频轨")).firstMatch
+        let result = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "音轨 · 无视频")).firstMatch
         XCTAssertTrue(result.waitForExistence(timeout: 10))
         let play = app.buttons["播放"].firstMatch
         reveal(play, in: app)

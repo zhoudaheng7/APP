@@ -1,11 +1,11 @@
 # 企业签名要求 · 声屿
 
-0.4.0包含广播与实时活动两个扩展。请签名服务同时处理主 App、`PlugIns/InternalAudioBroadcast.appex` 和 `PlugIns/RecordingActivity.appex`，保留两者，不能只签主可执行文件。
+0.4.1包含广播与实时活动两个扩展。请签名服务同时处理主 App、`PlugIns/InternalAudioBroadcast.appex` 和 `PlugIns/RecordingActivity.appex`，保留两者，不能只签主可执行文件。
 
 主 Bundle ID：`com.lightsquare.internalaudioprobe`。
 扩展 Bundle ID：`com.lightsquare.internalaudioprobe.broadcast`。
 实时活动扩展 Bundle ID：`com.lightsquare.internalaudioprobe.activity`，需同团队有效profile；该扩展不读取录音共享容器，不额外要求App Group或推送权限。
-两个目标均需同一开发团队、有效 provisioning profile，并授权同一个 App Group：`group.com.lightsquare.internalaudioprobe`。
+主App和广播扩展均需同一开发团队、有效 provisioning profile，并授权同一个 App Group：`group.com.lightsquare.internalaudioprobe`。
 
 两个签名的 entitlements 都应包含：
 
