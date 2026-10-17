@@ -22,7 +22,8 @@ struct AudioTrackView: View {
                     Text(active ? (playback.isPlaying ? "正在播放" : playback.finished ? "播放结束" : "已暂停") : "点击播放试听")
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(active && playback.isPlaying ? Color.accentColor : .primary)
-                    Text(file.lastPathComponent).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                    Text("\(file.lastPathComponent) · \(sizeLabel)").font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                        .accessibilityIdentifier("audio-file-size")
                 }
                 Spacer()
                 Text("\(clock(time)) / \(clock(duration))").font(.caption.monospacedDigit())
@@ -54,6 +55,10 @@ struct AudioTrackView: View {
         let seconds = max(0, Int(value.isFinite ? value : 0))
         return seconds >= 3600 ? String(format: "%d:%02d:%02d", seconds / 3600, seconds / 60 % 60, seconds % 60)
             : String(format: "%d:%02d", seconds / 60, seconds % 60)
+    }
+    private var sizeLabel: String {
+        let bytes = (try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+        return ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
     }
 }
 

@@ -98,6 +98,8 @@ struct RecorderView: View {
                                         .font(.headline)
                                     Text(session.report.startedAt.formatted(date: .abbreviated, time: .shortened))
                                         .font(.caption).foregroundStyle(.secondary)
+                                    Text("\(durationLabel(session.report.audioSeconds)) · 音频大小 \(ByteCountFormatter.string(fromByteCount: session.audioBytes, countStyle: .file))")
+                                        .font(.caption).foregroundStyle(.secondary)
                                 }
                                 Spacer()
                                 Text(session.isActive ? "录制中" : stateLabel(session.report.state))

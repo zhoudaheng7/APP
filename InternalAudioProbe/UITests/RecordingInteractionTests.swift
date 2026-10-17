@@ -13,6 +13,7 @@ final class RecordingInteractionTests: XCTestCase {
         let play = app.buttons["播放"].firstMatch
         if !play.isHittable { app.swipeDown() }
         reveal(play, in: app)
+        XCTAssertTrue(app.staticTexts["audio-file-size"].firstMatch.exists, "Actual audio file size must be visible alongside playback")
         play.tap()
         XCTAssertTrue(app.staticTexts["正在播放"].firstMatch.waitForExistence(timeout: 3))
         XCTAssertTrue(app.sliders.firstMatch.exists)

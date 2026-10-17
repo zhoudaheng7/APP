@@ -263,6 +263,11 @@ struct SavedSession: Identifiable {
     let folder: URL
     var id: UUID { report.id }
     var isActive: Bool { RecordingLibrary.isActive(folder: folder) }
+    var audioBytes: Int64 {
+        audioFiles.reduce(0) { total, file in
+            total + Int64((try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
+        }
+    }
     var audioFiles: [URL] {
         RecordingFiles.audioForExport(report: report, folder: folder)
     }
