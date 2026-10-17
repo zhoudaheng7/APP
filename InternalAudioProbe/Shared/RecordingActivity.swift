@@ -20,9 +20,18 @@ struct StopRecordingIntent: LiveActivityIntent, AudioRecordingIntent {
     init(sessionID: String) { self.sessionID = sessionID }
     @MainActor
     func perform() async throws -> some IntentResult {
-#if !WIDGET_EXTENSION
+#if WIDGET_EXTENSION
+        // LiveActivityIntent must be dispatched to the host app. Never report a
+        // successful stop if the system unexpectedly executes this extension copy.
+        throw RecordingIntentError.hostRequired
+#else
         try await CaptureController.shared.stopFromActivity(sessionID: sessionID)
 #endif
         return .result()
     }
+}
+
+private enum RecordingIntentError: LocalizedError {
+    case hostRequired
+    var errorDescription: String? { "请打开声屿停止录音；当前无法连接主程序。" }
 }

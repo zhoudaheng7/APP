@@ -23,7 +23,6 @@ final class CaptureController: NSObject, ObservableObject {
     @Published var externalRecording = false
     @Published var microphoneEnabled = false
     @Published var showQuickMenu = false
-    @Published var showCallInfo = false
     private var writer: AudioSegmentWriter?
     private var mixer: AudioMixWriter?
     private var microphone: MicrophoneCapture?
@@ -41,6 +40,7 @@ final class CaptureController: NSObject, ObservableObject {
         root = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Recordings", isDirectory: true)
         super.init()
+        microphoneEnabled = RecordingPaths.microphonePreference
         interruptionObserver = NotificationCenter.default.addObserver(forName: AVAudioSession.interruptionNotification,
             object: nil, queue: .main) { [weak self] notification in
                 guard let raw = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
@@ -61,6 +61,8 @@ final class CaptureController: NSObject, ObservableObject {
         refreshSessions()
         guard phase == .idle, !libraryWorking, !externalRecording else { throw StartError.busy }
         phase = .starting
+        report = nil
+        inspection = ""
         microphoneEnabled = enabled
         RecordingPaths.microphonePreference = enabled
         if enabled {
@@ -122,6 +124,7 @@ final class CaptureController: NSObject, ObservableObject {
                     content: ActivityContent(state: .init(message: "正在录制 · 长按灵动岛可停止"), staleDate: nil), pushType: nil)
             }
             try await capture.startCapture()
+            guard phase == .starting, writer === output else { try? await capture.stopCapture(); return }
             if let mix {
                 let mic = MicrophoneCapture()
                 microphone = mic
@@ -178,7 +181,8 @@ final class CaptureController: NSObject, ObservableObject {
             else { writer.finish(reason: reason, completion: completion) }
         }
         if let liveActivity {
-            await liveActivity.end(ActivityContent(state: .init(message: "已停止并保存"), staleDate: nil), dismissalPolicy: .immediate)
+            let message = completed.segments.contains(where: { $0.state == "complete" }) ? "已停止，请试听确认" : "已停止，请打开声屿检查文件"
+            await liveActivity.end(ActivityContent(state: .init(message: message), staleDate: nil), dismissalPolicy: .immediate)
             self.liveActivity = nil
         }
         report = completed
@@ -196,7 +200,7 @@ final class CaptureController: NSObject, ObservableObject {
     }
 
     func stopFromActivity(sessionID: String) async throws {
-        guard writer?.folder.lastPathComponent == sessionID, phase == .recording else {
+        guard writer?.folder.lastPathComponent == sessionID, [.starting, .recording].contains(phase) else {
             // Dismiss an obsolete activity after system termination; do not stop another session.
             for activity in Activity<RecordingActivityAttributes>.activities where activity.attributes.sessionID == sessionID {
                 await activity.end(nil, dismissalPolicy: .immediate)

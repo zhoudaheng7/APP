@@ -54,6 +54,7 @@ jobs:
           cp README.md dist/INSTALL.txt
           cp SIGNING.md dist/SIGNING.txt
           cp Design/OPEN-SOURCE.md dist/OPEN-SOURCE.txt
+          cp Design/DEVICE-CHECKS.md dist/DEVICE-CHECKS.txt
           cp App/Resources/HaishinKit-LICENSE.txt dist/HaishinKit-LICENSE.txt
           cp App/AudioCapture.entitlements dist/MainApp.entitlements
           cp Broadcast/AudioCapture.entitlements dist/Broadcast.entitlements

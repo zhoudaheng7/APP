@@ -56,7 +56,6 @@ struct RecorderView: View {
             }
             .refreshable { recorder.refreshSessions() }
             .sheet(isPresented: $showHelp) { helpSheet }
-            .sheet(isPresented: $recorder.showCallInfo) { callInfoSheet }
             .sheet(isPresented: $recorder.showQuickMenu) { quickMenuSheet }
             .confirmationDialog("删除 \(pendingDelete.count) 条录音及其音频文件？", isPresented: $confirmDelete, titleVisibility: .visible) {
                 Button("删除录音", role: .destructive) {
@@ -165,7 +164,9 @@ struct RecorderView: View {
                 Text("App 或快捷指令开始的录音：录前选择仅内部音或内部音＋麦克风，通过系统授权后开录。长按灵动岛展开，再点「停止并保存」；关闭实时活动时需从 App 或系统停止。")
                 Text("快捷指令中搜索「声屿」，可用「录音菜单」「仅内部音」「内部音＋麦克风」。组合菜单：第一层通话说明／内部录音，内部录音再选两种模式。系统采集确认不能跳过。")
                 Text("控制中心独立开录沿用 App 最近选择的麦克风模式。混音还需先在系统录屏面板开启麦克风；未收到麦克风样本不会记成混音成功。独立广播不能保证创建声屿灵动岛，请从系统录屏停止。")
-                Button("通话录音方案说明") { showHelp = false; recorder.showCallInfo = true }
+                NavigationLink("通话录音方案说明") {
+                    ScrollView { callInfoContent }.navigationTitle("通话录音").navigationBarTitleDisplayMode(.inline)
+                }
                 Text(recorder.controlCenterStatus).font(.caption).foregroundStyle(.secondary)
                 Text("合并生成新录音并保留原件。删除无法撤销，重要录音请先导出。").font(.caption).foregroundStyle(.secondary)
             }.padding(20).font(.subheadline) }
@@ -175,29 +176,23 @@ struct RecorderView: View {
         }.presentationDetents([.medium, .large])
     }
 
-    private var callInfoSheet: some View {
-        NavigationStack {
-            ScrollView {
+    private var callInfoContent: some View {
                 VStack(alignment: .leading, spacing: 16) {
                     Text("通话采集尚未接通").font(.title3.bold())
                     Text("此版本不能用声屿直接开始或停止系统电话、微信或 WhatsApp 的双向通话录音。快捷指令不会增加通话音频权限，打开麦克风也不等于录到通话双方。")
-                    Text("已审查 AirBeep：它修改系统通话录音提示音，没有通话采集或开始／停止接口，且依赖非公开系统机制与配对环境。尚未合入此包。")
-                    Text("已审查 TrollRecorder：具备实际通话采集，但依赖 TrollStore／越狱及专用权限，不能直接用于此企业签名 iOS 27 包。")
+                    Text("找到的 AirBeep 只调整系统通话录音提示音；TrollRecorder 需要 TrollStore 或越狱环境。它们暂不能拼成当前企业签名包可用的双向通话录音。")
                     Link("查看 AirBeep 源码", destination: URL(string: "https://github.com/LinkPass888/AirBeep")!)
                     Link("查看 TrollRecorder 源码", destination: URL(string: "https://github.com/Lessica/TrollRecorder")!)
                     Text("系统电话录音请使用电话 App 自身提供的功能，录音由系统管理；声屿灵动岛不能控制它。")
                         .font(.caption).foregroundStyle(.secondary)
                 }.padding(20)
-            }.background(RecorderTheme.background).navigationTitle("通话录音").navigationBarTitleDisplayMode(.inline)
-                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("关闭") { recorder.showCallInfo = false } } }
-        }
     }
 
     private var quickMenuSheet: some View {
         NavigationStack {
             List {
                 NavigationLink("通话录音（方案说明）") {
-                    callInfoSheet
+                    ScrollView { callInfoContent }.navigationTitle("通话录音").navigationBarTitleDisplayMode(.inline)
                 }
                 NavigationLink("内部录音") {
                     List {
