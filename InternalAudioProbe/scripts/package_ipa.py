@@ -32,6 +32,16 @@ def package(app: Path, destination: Path) -> dict:
     info = plistlib.loads((app / 'Info.plist').read_bytes())
     binary = app / info['CFBundleExecutable']
     evidence = verify_binary(binary.read_bytes())
+    extension = app / 'PlugIns/InternalAudioBroadcast.appex'
+    ext_info = plistlib.loads((extension / 'Info.plist').read_bytes())
+    ext_binary = verify_binary((extension / ext_info['CFBundleExecutable']).read_bytes())
+    assert ext_info['NSExtension']['NSExtensionPointIdentifier'] == 'com.apple.broadcast-services-upload'
+    assert ext_info['NSExtension']['RPBroadcastProcessMode'] == 'RPBroadcastProcessModeSampleBuffer'
+    assert ext_info['CFBundleIdentifier'].startswith(info['CFBundleIdentifier'] + '.')
+    assert ext_info['AudioAppGroupIdentifier'] == info['AudioAppGroupIdentifier']
+    assert 'NSMicrophoneUsageDescription' not in ext_info
+    assert (app / 'Assets.car').is_file(), 'Compiled app icon assets missing'
+    assert info.get('CFBundleIcons', {}).get('CFBundlePrimaryIcon'), 'Primary icon declaration missing'
     if info.get('CFBundleSupportedPlatforms') != ['iPhoneOS']:
         raise ValueError('Info.plist is not a device build')
     if 'NSMicrophoneUsageDescription' in info:
@@ -53,7 +63,9 @@ def package(app: Path, destination: Path) -> dict:
     evidence.update(bundleIdentifier=info['CFBundleIdentifier'], version=info['CFBundleShortVersionString'],
                     fileCount=len(files), size=destination.stat().st_size,
                     sha256=hashlib.sha256(destination.read_bytes()).hexdigest(), signed=False,
-                    microphonePermission=False, backgroundModes=info['UIBackgroundModes'])
+                    microphonePermission=False, backgroundModes=info['UIBackgroundModes'],
+                    extension={'bundleIdentifier': ext_info['CFBundleIdentifier'], **ext_binary},
+                    appGroup=info['AudioAppGroupIdentifier'], iconAssets=True)
     destination.with_suffix('.verification.json').write_text(json.dumps(evidence, indent=2) + '\n', encoding='utf-8')
     return evidence
 

@@ -12,16 +12,19 @@ settings:
     CODE_SIGNING_ALLOWED: NO
     CODE_SIGNING_REQUIRED: NO
     DEVELOPMENT_TEAM: ""
-    MARKETING_VERSION: "0.1.0"
-    CURRENT_PROJECT_VERSION: "1"
+    MARKETING_VERSION: "0.2.0"
+    CURRENT_PROJECT_VERSION: "2"
+    AUDIO_APP_GROUP: group.com.lightsquare.internalaudioprobe
 targets:
   InternalAudioProbe:
     type: application
     platform: iOS
-    sources: [App]
+    sources: [App, Shared]
     dependencies:
       - package: AudioCore
         product: AudioCore
+      - target: InternalAudioBroadcast
+        embed: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.lightsquare.internalaudioprobe
@@ -29,6 +32,36 @@ targets:
         SUPPORTS_MACCATALYST: NO
         GENERATE_INFOPLIST_FILE: NO
         INFOPLIST_FILE: App/Info.plist
+        CODE_SIGN_ENTITLEMENTS: App/AudioCapture.entitlements
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks"
     scheme:
       gatherCoverageData: false
+      testTargets: [InternalAudioProbeUITests]
+  InternalAudioBroadcast:
+    type: app-extension
+    platform: iOS
+    sources: [Broadcast, Shared]
+    dependencies:
+      - package: AudioCore
+        product: AudioCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.lightsquare.internalaudioprobe.broadcast
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: Broadcast/Info.plist
+        CODE_SIGN_ENTITLEMENTS: Broadcast/AudioCapture.entitlements
+        APPLICATION_EXTENSION_API_ONLY: YES
+        SKIP_INSTALL: YES
+        LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks"
+  InternalAudioProbeUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [UITests]
+    dependencies:
+      - target: InternalAudioProbe
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.lightsquare.internalaudioprobe.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: InternalAudioProbe

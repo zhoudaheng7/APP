@@ -31,10 +31,12 @@ jobs:
       - name: Test actual audio encoding and inspect file tracks
         run: |
           set -euo pipefail
+          export AUDIO_CORE_UI_FIXTURE="$PWD/dist/ui-fixture"
           swift test 2>&1 | tee dist/audio-tests.log
       - name: Generate Xcode project
         run: |
           set -euo pipefail
+          bash scripts/prepare_icon.sh
           command -v xcodegen >/dev/null || brew install xcodegen
           xcodegen generate
       - name: Build unsigned arm64 iPhone application
@@ -50,10 +52,18 @@ jobs:
           python3 scripts/package_ipa.py build/device/Build/Products/Release-iphoneos/InternalAudioProbe.app dist/InternalAudioProbe-unsigned.ipa
           git rev-parse HEAD > dist/source-commit.txt
           cp README.md dist/INSTALL.txt
+          cp SIGNING.md dist/SIGNING.txt
+          cp App/AudioCapture.entitlements dist/MainApp.entitlements
+          cp Broadcast/AudioCapture.entitlements dist/Broadcast.entitlements
+      - name: Verify playback feedback and track-check UI in iPhone Simulator
+        run: bash scripts/run_ui_smoke.sh
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
           name: InternalAudioProbe-iPhone
-          path: InternalAudioProbe/dist/
+          path: |
+            InternalAudioProbe/dist/
+            !InternalAudioProbe/dist/Interaction.xcresult/**
+            !InternalAudioProbe/dist/ui-fixture/**
           if-no-files-found: warn
           retention-days: 14

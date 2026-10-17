@@ -21,9 +21,10 @@ public final class AudioSegmentWriter: @unchecked Sendable {
     private var finishing = false
     private var lastPublication = Date.distantPast
 
-    public init(root: URL, segmentLength: Double = 60) throws {
+    public init(root: URL, segmentLength: Double = .infinity, captureSource: String? = nil) throws {
         self.segmentLength = segmentLength
-        let report = SessionReport()
+        var report = SessionReport()
+        report.captureSource = captureSource
         self.report = report
         folder = root.appendingPathComponent(report.id.uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -98,7 +99,7 @@ public final class AudioSegmentWriter: @unchecked Sendable {
 
     private func openSegment(description: CMFormatDescription, format: AudioStreamBasicDescription, timestamp: CMTime) throws {
         let index = report.segments.count
-        let name = String(format: "part-%03d.m4a", index + 1)
+        let name = segmentLength.isInfinite && index == 0 ? "recording.m4a" : String(format: "part-%03d.m4a", index + 1)
         let assetWriter = try AVAssetWriter(outputURL: folder.appendingPathComponent(name), fileType: .m4a)
         let settings: [String: Any] = [
             AVFormatIDKey: kAudioFormatMPEG4AAC,

@@ -25,6 +25,8 @@ public struct SessionReport: Codable, Identifiable, Sendable {
     public var channelCount: UInt32 = 0
     public var segments: [AudioSegment] = []
     public var error: String?
+    public var captureSource: String?
+    public var mergedFrom: [UUID]?
     public private(set) var microphoneRecorded = false
     public private(set) var videoSaved = false
 

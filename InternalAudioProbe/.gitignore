@@ -7,3 +7,5 @@ dist/
 *.p12
 *.mobileprovision
 *.ipa
+__pycache__/
+App/Assets.xcassets/AppIcon.appiconset/AppIcon.png

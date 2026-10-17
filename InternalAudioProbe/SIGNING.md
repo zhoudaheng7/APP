@@ -1,0 +1,28 @@
+# 企业签名要求 · 0.2.0
+
+此版本加入控制中心广播扩展。请签名服务同时处理主 App 和 `PlugIns/InternalAudioBroadcast.appex`，保留扩展，不能只签主可执行文件。
+
+主 Bundle ID：`com.lightsquare.internalaudioprobe`。
+扩展 Bundle ID：`com.lightsquare.internalaudioprobe.broadcast`。
+两个目标均需同一开发团队、有效 provisioning profile，并授权同一个 App Group：`group.com.lightsquare.internalaudioprobe`。
+
+两个签名的 entitlements 都应包含：
+
+```xml
+<key>com.apple.security.application-groups</key>
+<array><string>group.com.lightsquare.internalaudioprobe</string></array>
+```
+
+`MainApp.entitlements` 与 `Broadcast.entitlements` 是构建要求模板，里面的 `$(AUDIO_APP_GROUP)` 在签名前应替换为实际获准的 Group ID；它们不是证书，也不是已生效权限。
+
+如果签名服务改 Bundle ID，扩展 ID 必须位于新主 ID 下。若 App Group 也改名，需要同步改主 App 和扩展的 `Info.plist → AudioAppGroupIdentifier` 及双方签名 entitlements，并确保双方 provisioning profile 都授权该 Group。
+
+不要添加不存在的 `com.apple.developer.replaykit.broadcast` entitlement。本版本只使用标准 Broadcast Upload Extension 注册和 App Groups。
+
+App 的 `screen-capture` 后台模式、图标资产、最低 iOS 27 和用户已有数据需要保留。建议覆盖安装，先导出旧音频；卸载再装可能清除录音。
+
+安装后长按控制中心录屏按钮，选择「内录 · 仅音频」→ 开始广播。结束后打开主 App，查看并只导出 M4A。
+
+若签名服务不支持 App Groups，主 App 的 ScreenCaptureKit 内录仍可走本地 Documents；控制中心扩展会报告共享容器未配置，不会悄悄生成主 App 无法访问的录音。
+
+首次签名后的扩展显示、App Group 访问、停止后分段完成都需要 iPhone 真机验证，云端构建成功不代证权限已配置。

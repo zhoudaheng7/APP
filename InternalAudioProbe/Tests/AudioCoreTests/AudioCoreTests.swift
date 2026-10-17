@@ -63,10 +63,104 @@ final class AudioCoreTests: XCTestCase {
         XCTAssertTrue(report.segments.isEmpty)
     }
 
+    func testExportExcludesDiagnosticsAndUnfinishedAudio() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let writer = try AudioSegmentWriter(root: root)
+        for index in 0..<4 { writer.append(try sample(index: index, silent: false)) }
+        let report = await finish(writer)
+        // A stale partial file and the private JSON files must not enter the share sheet.
+        try Data([0]).write(to: writer.folder.appendingPathComponent("unfinished.m4a"))
+        try Data("{}".utf8).write(to: writer.folder.appendingPathComponent("inspection.json"))
+        let files = RecordingFiles.audioForExport(report: report, folder: writer.folder)
+        XCTAssertEqual(files.map(\.lastPathComponent), ["recording.m4a"])
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: writer.folder.path).count, 4)
+    }
+
+    func testControlCenterMetadataAndLegacyCompatibility() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let writer = try AudioSegmentWriter(root: root, captureSource: "control-center")
+        _ = await finish(writer)
+        XCTAssertEqual(try SessionReport.load(from: writer.folder).captureSource, "control-center")
+        let path = writer.folder.appendingPathComponent("session.json")
+        var legacy = try JSONSerialization.jsonObject(with: Data(contentsOf: path)) as! [String: Any]
+        legacy.removeValue(forKey: "captureSource")
+        try JSONSerialization.data(withJSONObject: legacy).write(to: path)
+        XCTAssertNil(try SessionReport.load(from: writer.folder).captureSource)
+    }
+
     private func finish(_ writer: AudioSegmentWriter) async -> SessionReport {
         await withCheckedContinuation { continuation in
             writer.finish { continuation.resume(returning: $0) }
         }
+    }
+
+    func testContinuousRecordingCrossesMinuteWithoutSplitting() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let writer = try AudioSegmentWriter(root: root)
+        for index in 0..<3000 {
+            writer.append(try sample(index: index, silent: false))
+            try await Task.sleep(nanoseconds: 1_000_000)
+        }
+        let report = await finish(writer)
+        XCTAssertEqual(report.segments.count, 1, "Continuous recording must not rotate at the 60-second boundary")
+        XCTAssertEqual(report.state, "finished")
+        XCTAssertGreaterThan(report.audioSeconds, 20)
+        if let fixture = ProcessInfo.processInfo.environment["AUDIO_CORE_UI_FIXTURE"] {
+            let destination = URL(fileURLWithPath: fixture).appendingPathComponent(report.id.uuidString)
+            try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try FileManager.default.copyItem(at: writer.folder, to: destination)
+        }
+    }
+
+    func testMergeProducesOneAudibleAudioFileAndKeepsOriginals() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        var files: [URL] = []
+        var ids: [UUID] = []
+        for _ in 0..<2 {
+            let writer = try AudioSegmentWriter(root: root)
+            for index in 0..<20 {
+                writer.append(try sample(index: index, silent: false))
+                try await Task.sleep(nanoseconds: 2_000_000)
+            }
+            let report = await finish(writer)
+            ids.append(report.id)
+            files += RecordingFiles.audioForExport(report: report, folder: writer.folder)
+        }
+        let merged = try await RecordingLibrary.merge(files: files, sourceIDs: ids, root: root)
+        let report = try SessionReport.load(from: merged)
+        XCTAssertEqual(report.mergedFrom, ids)
+        let outputs = RecordingFiles.audioForExport(report: report, folder: merged)
+        XCTAssertEqual(outputs.count, 1)
+        XCTAssertTrue(files.allSatisfy { FileManager.default.fileExists(atPath: $0.path) })
+        let waveform = try AudioWaveform.read(outputs[0])
+        XCTAssertEqual(waveform.peaks.count, 64)
+        XCTAssertGreaterThan(waveform.peaks.max() ?? 0, 0.01)
+        XCTAssertGreaterThan(waveform.duration, 0.3)
+        let video = try await AVURLAsset(url: outputs[0]).loadTracks(withMediaType: .video)
+        XCTAssertTrue(video.isEmpty)
+    }
+
+    func testDeleteRejectsRootOutsideFolderAndActiveRecording() async throws {
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: base) }
+        let root = base.appendingPathComponent("allowed")
+        let writer = try AudioSegmentWriter(root: root)
+        _ = await finish(writer)
+        let outside = try AudioSegmentWriter(root: base.appendingPathComponent("outside"))
+        _ = await finish(outside)
+        XCTAssertThrowsError(try RecordingLibrary.deleteSession(folder: root, allowedRoots: [root]))
+        XCTAssertThrowsError(try RecordingLibrary.deleteSession(folder: outside.folder, allowedRoots: [root]))
+        let marker = writer.folder.appendingPathComponent(".active")
+        try Data().write(to: marker)
+        XCTAssertThrowsError(try RecordingLibrary.deleteSession(folder: writer.folder, allowedRoots: [root]))
+        try FileManager.default.removeItem(at: marker)
+        try RecordingLibrary.deleteSession(folder: writer.folder, allowedRoots: [root])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: writer.folder.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: outside.folder.path))
     }
 
     private func sample(index: Int, silent: Bool) throws -> CMSampleBuffer {

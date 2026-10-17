@@ -12,6 +12,10 @@ final class CaptureController: NSObject, ObservableObject {
     @Published var report: SessionReport?
     @Published var sessions: [SavedSession] = []
     @Published var inspection = ""
+    @Published var controlCenterStatus = ""
+    @Published var checks: [UUID: AudioCheck] = [:]
+    @Published var libraryWorking = false
+    @Published var libraryMessage = ""
     private var stream: SCStream?
     private var sink: AudioSink?
     private var writer: AudioSegmentWriter?
@@ -27,7 +31,7 @@ final class CaptureController: NSObject, ObservableObject {
     }
 
     func start() {
-        guard phase == .idle else { return }
+        guard phase == .idle, !libraryWorking else { return }
         let picker = SCContentSharingPicker.shared
         guard picker.isAvailable else { status = "当前设备无法打开系统采集选择器。"; return }
         guard !picker.isActive else { status = "已有其他屏幕采集正在使用选择器，请先停止。"; return }
@@ -130,7 +134,14 @@ final class CaptureController: NSObject, ObservableObject {
     }
 
     func refreshSessions() {
-        let folders = (try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)) ?? []
+        var roots = [root]
+        if let sharedRoot = RecordingPaths.sharedRoot {
+            roots.append(sharedRoot)
+            controlCenterStatus = "停止控制中心录音后，回到这里即可试听和导出。"
+        } else {
+            controlCenterStatus = "控制中心入口需要企业签名保留扩展和共享容器权限。若启动提示共享容器错误，请联系签名服务；App 内开始内录仍可使用。"
+        }
+        let folders = roots.flatMap { (try? FileManager.default.contentsOfDirectory(at: $0, includingPropertiesForKeys: nil)) ?? [] }
         sessions = folders.compactMap { folder in
             guard let report = try? SessionReport.load(from: folder) else { return nil }
             return SavedSession(report: report, folder: folder)
@@ -138,6 +149,8 @@ final class CaptureController: NSObject, ObservableObject {
     }
 
     func inspect(_ session: SavedSession) async {
+        guard checks[session.id]?.checking != true else { return }
+        checks[session.id] = AudioCheck(checking: true, passed: false, message: "正在读取音频文件并检查轨道…")
         var audio = 0, video = 0
         var errors: [String] = []
         for url in session.audioFiles {
@@ -153,6 +166,7 @@ final class CaptureController: NSObject, ObservableObject {
         else if video > 0 { message = "异常：文件含 \(video) 条视频轨，验证未通过。" }
         else { message = "文件轨道检查：\(audio) 条音轨，0 条视频轨。仍需试听确认内容。" }
         inspection = message
+        checks[session.id] = AudioCheck(checking: false, passed: errors.isEmpty && audio > 0 && video == 0, message: message)
         // Inspection JSON is metadata only; never includes captured samples or credentials.
         let result: [String: Any] = ["audioTracks": audio, "videoTracks": video, "errors": errors,
                                      "checkedAt": ISO8601DateFormatter().string(from: Date())]
@@ -161,6 +175,48 @@ final class CaptureController: NSObject, ObservableObject {
                 .write(to: session.folder.appendingPathComponent("inspection.json"), options: .atomic)
         } catch { inspection += " 保存检查记录失败：\(error.localizedDescription)" }
     }
+
+    func merge(ids: Set<UUID>) async {
+        guard phase == .idle, !libraryWorking else { return }
+        let chosen = sessions.filter { ids.contains($0.id) }.sorted { $0.report.startedAt < $1.report.startedAt }
+        guard !chosen.isEmpty, chosen.allSatisfy({ !$0.isActive && !$0.audioFiles.isEmpty }),
+              chosen.flatMap(\.audioFiles).count > 1 else {
+            libraryMessage = "请选择至少两份完整音频；正在录制的记录请先停止。"
+            return
+        }
+        libraryWorking = true
+        libraryMessage = "正在合并音频，原记录会保留…"
+        defer { libraryWorking = false }
+        do {
+            _ = try await RecordingLibrary.merge(files: chosen.flatMap(\.audioFiles), sourceIDs: chosen.map(\.id), root: root)
+            refreshSessions()
+            libraryMessage = "已生成一条合并录音，原记录仍保留。"
+        } catch { libraryMessage = "合并失败：\(error.localizedDescription)" }
+    }
+
+    func delete(ids: Set<UUID>) {
+        guard phase == .idle, !libraryWorking else { return }
+        let chosen = sessions.filter { ids.contains($0.id) }
+        var roots = [root]
+        if let shared = RecordingPaths.sharedRoot { roots.append(shared) }
+        var deleted = 0
+        var failures: [String] = []
+        for session in chosen {
+            do {
+                try RecordingLibrary.deleteSession(folder: session.folder, allowedRoots: roots)
+                deleted += 1
+                checks.removeValue(forKey: session.id)
+            } catch { failures.append(error.localizedDescription) }
+        }
+        refreshSessions()
+        libraryMessage = failures.isEmpty ? "已删除 \(deleted) 条录音。" : "已删除 \(deleted) 条；\(failures.joined(separator: "；"))"
+    }
+}
+
+struct AudioCheck {
+    let checking: Bool
+    let passed: Bool
+    let message: String
 }
 
 extension CaptureController: SCContentSharingPickerObserver {
@@ -204,12 +260,11 @@ struct SavedSession: Identifiable {
     let report: SessionReport
     let folder: URL
     var id: UUID { report.id }
+    var isActive: Bool { RecordingLibrary.isActive(folder: folder) }
     var audioFiles: [URL] {
-        ((try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? [])
-            .filter { $0.pathExtension == "m4a" }.sorted { $0.lastPathComponent < $1.lastPathComponent }
+        RecordingFiles.audioForExport(report: report, folder: folder)
     }
     var exportFiles: [URL] {
-        ((try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? [])
-            .filter { ["m4a", "json"].contains($0.pathExtension) }.sorted { $0.lastPathComponent < $1.lastPathComponent }
+        audioFiles
     }
 }
