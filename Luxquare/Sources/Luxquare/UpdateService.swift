@@ -21,8 +21,12 @@ final class UpdateService: ObservableObject {
     var installedBuild: Int { Int(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0") ?? 0 }
     var installURL: URL? {
         guard let update, let remote = URL(string: update.manifestURL), trustedManifest(remote) else { return nil }
+        return Self.installationURL(for: remote)
+    }
+    static func installationURL(for manifest: URL) -> URL? {
         var parts = URLComponents(); parts.scheme = "itms-services"
-        parts.queryItems = [URLQueryItem(name: "action", value: "download-manifest"), URLQueryItem(name: "url", value: remote.absoluteString)]
+        parts.host = ""
+        parts.queryItems = [URLQueryItem(name: "action", value: "download-manifest"), URLQueryItem(name: "url", value: manifest.absoluteString)]
         return parts.url
     }
     private func trustedManifest(_ url: URL) -> Bool {
