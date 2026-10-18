@@ -321,7 +321,7 @@ private struct NativeShareFile: Identifiable {
     let url: URL
 }
 
-private struct NativeAudioShareSheet: UIViewControllerRepresentable {
+struct NativeAudioShareSheet: UIViewControllerRepresentable {
     let url: URL
 
     func makeUIViewController(context: Context) -> UIActivityViewController {

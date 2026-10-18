@@ -38,6 +38,7 @@ if [ -d UITests ] && find UITests -name '*.swift' -print -quit | grep -q .; then
   xcodebuild test -project Luxquare.xcodeproj -scheme Luxquare \
     -configuration Debug -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
     -derivedDataPath build/simulator -resultBundlePath dist/Smoke.xcresult \
+    -parallel-testing-enabled NO \
     CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
     -collect-test-diagnostics never 2>&1 | tee dist/simulator-tests.log
   xcrun xcresulttool export attachments --path dist/Smoke.xcresult --output-path dist/UIAttachments || true

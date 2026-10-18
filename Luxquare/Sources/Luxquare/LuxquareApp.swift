@@ -62,6 +62,9 @@ struct LuxquareRoot: View {
             Button("完成", role: .cancel) { locationNotice = nil }
         } message: { Text(locationNotice ?? "") }
         .onChange(of: model.showLogin) { _, visible in if visible { login() } }
+        .onChange(of: model.identityEpoch) { _, _ in
+            destination = nil; upload = nil; connectRecordingAfterDismiss = false
+        }
     }
 
     private var home: some View {
@@ -82,7 +85,7 @@ struct LuxquareRoot: View {
                         Text("应用").font(.headline)
                         Text("\(displayModules.count)").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                         Spacer()
-                        if model.user != nil { Button { openWorkbench() } label: { Image(systemName: "sidebar.left") }.accessibilityLabel("打开工作台管理") }
+                        if model.user != nil { Button { openWorkbench() } label: { Image(systemName: "sidebar.left") }.accessibilityLabel("打开网页工作台") }
                     }
                     LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
                         ForEach(displayModules) { module in
@@ -137,7 +140,7 @@ struct LuxquareRoot: View {
             .accessibilityIdentifier("native.settings.screen")
     }
     private func login() {
-        guard let base = model.baseURL else { return }
+        guard !model.transitioning, let base = model.baseURL else { return }
         model.showLogin = false
         destination = WebDestination(url: base.appendingPathComponent("auth/entry"), title: "企业身份登录")
     }
@@ -247,7 +250,7 @@ struct SettingsScreen: View {
             Section("企业身份") {
                 if let user = model.user {
                     LabeledContent("已登录", value: user.displayName)
-                    Button("打开工作台管理", action: onWorkbench)
+                    Button("打开网页工作台", action: onWorkbench)
                     Button("退出此设备登录", role: .destructive) { showLogout = true }
                 } else { Button("使用企业身份登录", action: onLogin).disabled(model.baseURL == nil) }
             }
@@ -278,6 +281,6 @@ struct SettingsScreen: View {
         .confirmationDialog("退出此设备上的企业登录？", isPresented: $showLogout, titleVisibility: .visible) {
             Button("退出登录", role: .destructive) { Task { await model.logout() } }
             Button("取消", role: .cancel) { }
-        } message: { Text("请先保存网页中未完成的操作。本机原生录音会按原账号继续保留。") }
+        } message: { Text("请先保存网页中未完成的操作。退出会清理本App网页缓存；原生录音和对话仍按原账号保留。") }
     }
 }

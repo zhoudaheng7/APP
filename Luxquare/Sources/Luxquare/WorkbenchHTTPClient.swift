@@ -10,6 +10,15 @@ extension WKHTTPCookieStore {
     }
 }
 
+extension WKWebsiteDataStore {
+    func luxClearLocalWebsiteData() async {
+        let types = Self.allWebsiteDataTypes().subtracting([WKWebsiteDataTypeCookies])
+        await withCheckedContinuation { continuation in
+            removeData(ofTypes: types, modifiedSince: .distantPast) { continuation.resume() }
+        }
+    }
+}
+
 enum ClientError: LocalizedError {
     case forbiddenOrigin, invalidResponse, status(Int), identityChanged, unsignedDraft
     var errorDescription: String? {
@@ -36,15 +45,25 @@ private final class APIRedirectGuard: NSObject, URLSessionTaskDelegate {
 @MainActor
 final class WorkbenchHTTPClient {
     var allowedOrigins = Set<String>()
+    private(set) var generation: UInt64 = 0
+    private let cookieReader: (() async -> [HTTPCookie])?
     private let redirectGuard = APIRedirectGuard()
-    private lazy var session: URLSession = {
+    private var sessionStorage: URLSession?
+    init(cookieReader: (() async -> [HTTPCookie])? = nil) { self.cookieReader = cookieReader }
+    func invalidateRequests() {
+        generation &+= 1
+        sessionStorage?.invalidateAndCancel(); sessionStorage = nil
+    }
+    private func session() -> URLSession {
+        if let sessionStorage { return sessionStorage }
         let config = URLSessionConfiguration.ephemeral
         config.httpCookieStorage = nil; config.httpShouldSetCookies = false
         config.urlCache = nil; config.requestCachePolicy = .reloadIgnoringLocalCacheData
         config.waitsForConnectivity = true
         config.timeoutIntervalForRequest = 45; config.timeoutIntervalForResource = 900
-        return URLSession(configuration: config, delegate: redirectGuard, delegateQueue: nil)
-    }()
+        let result = URLSession(configuration: config, delegate: redirectGuard, delegateQueue: nil)
+        sessionStorage = result; return result
+    }
     static func cookie(_ cookie: HTTPCookie, matchesHost host: String) -> Bool {
         let domain = cookie.domain.lowercased()
         if domain.hasPrefix(".") {
@@ -55,7 +74,10 @@ final class WorkbenchHTTPClient {
     }
     private func cookies(for url: URL) async -> [HTTPCookie] {
         guard let host = url.host else { return [] }
-        return await WKWebsiteDataStore.default().httpCookieStore.luxCookies().filter { cookie in
+        let all: [HTTPCookie]
+        if let cookieReader { all = await cookieReader() }
+        else { all = await WKWebsiteDataStore.default().httpCookieStore.luxCookies() }
+        return all.filter { cookie in
             let requestedPath = url.path.isEmpty ? "/" : url.path
             let cookiePath = cookie.path.isEmpty ? "/" : cookie.path
             let pathMatches = requestedPath == cookiePath || (requestedPath.hasPrefix(cookiePath) && (cookiePath.hasSuffix("/") || requestedPath.dropFirst(cookiePath.count).first == "/"))
@@ -63,37 +85,51 @@ final class WorkbenchHTTPClient {
         }
     }
     func cookie(named: String, for url: URL) async -> String? {
+        let expected = generation
         guard let origin = url.originURL?.absoluteString, allowedOrigins.contains(origin) else { return nil }
-        return await cookies(for: url).first { $0.name == named }?.value
+        let result = await cookies(for: url).first { $0.name == named }?.value
+        guard expected == generation, allowedOrigins.contains(origin) else { return nil }
+        return result
     }
-    private func prepared(_ input: URLRequest) async throws -> URLRequest {
+    func prepared(_ input: URLRequest) async throws -> URLRequest {
+        let expected = generation
         guard let url = input.url, let origin = url.originURL?.absoluteString,
               allowedOrigins.contains(origin), url.scheme == "https", url.user == nil, url.password == nil else { throw ClientError.forbiddenOrigin }
         var request = input
         request.httpShouldHandleCookies = false
         request.setValue(nil, forHTTPHeaderField: "Cookie")
         let matching = await cookies(for: url)
+        guard expected == generation, allowedOrigins.contains(origin) else { throw ClientError.identityChanged }
         for (key, value) in HTTPCookie.requestHeaderFields(with: matching) { request.setValue(value, forHTTPHeaderField: key) }
         request.setValue("no-store", forHTTPHeaderField: "Cache-Control")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         return request
     }
     func response(for input: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        let expected = generation
         let request = try await prepared(input)
-        let (data, response) = try await session.data(for: request)
+        guard expected == generation else { throw ClientError.identityChanged }
+        let (data, response) = try await session().data(for: request)
+        guard expected == generation else { throw ClientError.identityChanged }
         guard let response = response as? HTTPURLResponse else { throw ClientError.invalidResponse }
         return (data, response)
     }
     func bytes(for input: URLRequest) async throws -> (URLSession.AsyncBytes, HTTPURLResponse) {
+        let expected = generation
         var request = try await prepared(input)
+        guard expected == generation else { throw ClientError.identityChanged }
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
-        let (bytes, response) = try await session.bytes(for: request)
+        let (bytes, response) = try await session().bytes(for: request)
+        guard expected == generation else { throw ClientError.identityChanged }
         guard let response = response as? HTTPURLResponse else { throw ClientError.invalidResponse }
         return (bytes, response)
     }
     func upload(file: URL, to input: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        let expected = generation
         let request = try await prepared(input)
-        let (data, response) = try await session.upload(for: request, fromFile: file)
+        guard expected == generation else { throw ClientError.identityChanged }
+        let (data, response) = try await session().upload(for: request, fromFile: file)
+        guard expected == generation else { throw ClientError.identityChanged }
         guard let response = response as? HTTPURLResponse else { throw ClientError.invalidResponse }
         return (data, response)
     }

@@ -98,9 +98,12 @@ final class WorkbenchModel: ObservableObject {
     @Published var loading = false
     @Published var notice: String?
     @Published var showLogin = false
+    @Published private(set) var identityEpoch = UUID()
+    @Published private(set) var transitioning = false
     let configuration = AppConfiguration()
     let client = WorkbenchHTTPClient()
     private var lastRefresh = Date.distantPast
+    private var lastIdentityID = UserDefaults.standard.string(forKey: "lastEnterpriseIdentity")
     var baseURL: URL? { configuration.baseURL }
     var availableModules: [WorkbenchModule] { modules.filter { $0.available && $0.enabled && $0.url?.scheme == "https" } }
     var businessOrigins: Set<String> {
@@ -113,37 +116,68 @@ final class WorkbenchModel: ObservableObject {
         if configuration.isUITesting { notice = "原生界面预览" }
     }
     func refresh(force: Bool = false) async {
-        guard !loading, force || Date().timeIntervalSince(lastRefresh) > 2 else { return }
+        guard !loading, !transitioning, force || Date().timeIntervalSince(lastRefresh) > 2 else { return }
         guard let baseURL else { return }
-        loading = true; defer { loading = false; lastRefresh = Date() }
+        var expected = identityEpoch
+        loading = true
+        defer { if expected == identityEpoch { loading = false; lastRefresh = Date() } }
         do {
             let (userData, response) = try await client.response(for: URLRequest(url: baseURL.appendingPathComponent("api/me")))
+            guard expected == identityEpoch else { return }
             if response.statusCode == 401 {
+                identityEpoch = UUID(); expected = identityEpoch
+                client.invalidateRequests()
                 user = nil; modules = []; client.allowedOrigins = [baseURL.absoluteString]
                 NativeRecorder.shared.setAccountScope(nil)
                 notice = "请先使用企业飞书身份登录。"; return
             }
             guard response.statusCode == 200 else { throw ClientError.status(response.statusCode) }
             let newUser = try JSONDecoder().decode(WorkbenchUser.self, from: userData)
-            if user?.identityID != newUser.identityID { NativeRecorder.shared.setAccountScope(newUser.identityID) }
-            user = newUser
+            if lastIdentityID != newUser.identityID {
+                identityEpoch = UUID(); expected = identityEpoch
+                user = nil; modules = []; client.allowedOrigins = [baseURL.absoluteString]
+                client.invalidateRequests(); NativeRecorder.shared.setAccountScope(nil)
+                transitioning = true
+                let store = WKWebsiteDataStore.default()
+                for cookie in await store.httpCookieStore.luxCookies() {
+                    guard expected == identityEpoch else { return }
+                    if let host = baseURL.host, !WorkbenchHTTPClient.cookie(cookie, matchesHost: host) { await store.httpCookieStore.luxDelete(cookie) }
+                }
+                await store.luxClearLocalWebsiteData()
+                guard expected == identityEpoch else { return }
+                transitioning = false
+            }
             let (catalogData, catalogResponse) = try await client.response(for: URLRequest(url: baseURL.appendingPathComponent("api/catalog/modules")))
+            guard expected == identityEpoch else { return }
             guard catalogResponse.statusCode == 200 else { throw ClientError.status(catalogResponse.statusCode) }
             let catalog = try JSONDecoder().decode(WorkbenchCatalog.self, from: catalogData)
             guard catalog.version == 1 else { throw ClientError.invalidResponse }
-            modules = catalog.modules
+            modules = catalog.modules; user = newUser
             client.allowedOrigins = businessOrigins
+            NativeRecorder.shared.setAccountScope(newUser.identityID)
+            lastIdentityID = newUser.identityID
+            UserDefaults.standard.set(newUser.identityID, forKey: "lastEnterpriseIdentity")
             notice = nil; showLogin = false
         } catch {
+            guard expected == identityEpoch else { return }
+            transitioning = false
             notice = "暂时无法连接工作台，请检查网络后刷新。"
         }
     }
     func logout() async {
+        guard !transitioning else { return }
+        identityEpoch = UUID(); let expected = identityEpoch
+        transitioning = true; loading = false
+        client.invalidateRequests()
         NativeRecorder.shared.setAccountScope(nil)
-        let store = WKWebsiteDataStore.default().httpCookieStore
-        for cookie in await store.luxCookies() { await store.luxDelete(cookie) }
         user = nil; modules = []; showLogin = false
         client.allowedOrigins = Set([baseURL?.absoluteString].compactMap { $0 })
+        let store = WKWebsiteDataStore.default().httpCookieStore
+        for cookie in await store.luxCookies() { await store.luxDelete(cookie) }
+        await WKWebsiteDataStore.default().luxClearLocalWebsiteData()
+        guard expected == identityEpoch else { return }
+        transitioning = false; lastIdentityID = nil
+        UserDefaults.standard.removeObject(forKey: "lastEnterpriseIdentity")
         notice = "已退出此设备的企业会话。"
     }
     func permitsWebNavigation(_ url: URL) -> Bool {

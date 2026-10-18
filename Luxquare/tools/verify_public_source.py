@@ -8,7 +8,7 @@ import plistlib
 import re
 from pathlib import Path
 
-FOLDERS = {"Sources", "Resources", "Assets", "UITests", "Tests", "tools", ".github"}
+FOLDERS = {"Sources", "Resources", "Assets", "UITests", "UnitTests", "Tests", "tools", ".github"}
 ROOT_FILES = {"project.yml", "Info.plist", "Package.swift", "README.md", "LICENSE"}
 IGNORED = {".git", "build", "dist", "Luxquare.xcodeproj", "__pycache__", ".pytest_cache", ".DS_Store"}
 FORBIDDEN_NAMES = {".env", "remote81.py", "framework_remote_operator.py", "module_control.py", "sso.py", "AGENTS.md", "STATE.md"}
