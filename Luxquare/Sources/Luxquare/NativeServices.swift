@@ -422,7 +422,7 @@ final class NativeRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate,
         } catch { errorMessage = "录音文件仍保留，但保存录音信息失败。请检查手机储存空间。" }
     }
 
-    nonisolated @objc private func audioInterruption(_ notification: Notification) {
+    @objc nonisolated private func audioInterruption(_ notification: Notification) {
         let type = (notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? NSNumber)?.uintValue
         let options = (notification.userInfo?[AVAudioSessionInterruptionOptionKey] as? NSNumber)?.uintValue ?? 0
         Task { @MainActor [weak self] in self?.handleInterruption(type: type, options: options) }
@@ -444,7 +444,7 @@ final class NativeRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate,
         }
     }
 
-    nonisolated @objc private func audioRouteChanged(_ notification: Notification) {
+    @objc nonisolated private func audioRouteChanged(_ notification: Notification) {
         let reason = (notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? NSNumber)?.uintValue
         Task { @MainActor [weak self] in
             guard let self, reason == AVAudioSession.RouteChangeReason.oldDeviceUnavailable.rawValue, self.state == .recording else { return }
@@ -453,7 +453,7 @@ final class NativeRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate,
         }
     }
 
-    nonisolated @objc private func audioServicesReset(_ notification: Notification) {
+    @objc nonisolated private func audioServicesReset(_ notification: Notification) {
         Task { @MainActor [weak self] in
             guard let self, self.hasActiveRecording else { return }
             _ = self.stop()
@@ -461,18 +461,18 @@ final class NativeRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate,
         }
     }
 
-    nonisolated @objc private func applicationBackgrounded(_ notification: Notification) {
+    @objc nonisolated private func applicationBackgrounded(_ notification: Notification) {
         Task { @MainActor [weak self] in self?.checkpoint() }
     }
 
-    nonisolated @objc private func applicationBecameActive(_ notification: Notification) {
+    @objc nonisolated private func applicationBecameActive(_ notification: Notification) {
         Task { @MainActor [weak self] in
             guard let self else { return }
             if self.hasActiveRecording { self.updateMeter() } else { self.refresh() }
         }
     }
 
-    nonisolated @objc private func applicationWillTerminate(_ notification: Notification) {
+    @objc nonisolated private func applicationWillTerminate(_ notification: Notification) {
         // iOS does not guarantee this notification on force quit; source/checkpoints stay in Application Support.
         Task { @MainActor [weak self] in _ = self?.stop() }
     }
