@@ -9,3 +9,5 @@ dist/
 *.ipa
 __pycache__/
 App/Assets.xcassets/AppIcon.appiconset/AppIcon.png
+
+App/Assets.xcassets/ShareIcon.imageset/ShareIcon.png

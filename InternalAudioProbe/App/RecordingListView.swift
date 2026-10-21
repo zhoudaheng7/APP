@@ -269,7 +269,9 @@ private struct RecordingCardView: View {
                     Button(action: merge) { Image(systemName: "arrow.triangle.merge") }
                         .frame(width: 44, height: 44).disabled(!usable).accessibilityLabel("合并为一个音频文件")
                 }
-                ShareLink(items: shareItems, preview: { SharePreview($0.filename) }) { Image(systemName: "square.and.arrow.up") }
+                ShareLink(items: shareItems, preview: {
+                    SharePreview($0.filename, image: Image("ShareIcon"), icon: Image("ShareIcon"))
+                }) { Image(systemName: "square.and.arrow.up") }
                     .frame(width: 44, height: 44).disabled(session.exportFiles.isEmpty || session.isActive).accessibilityLabel("导出音频")
                 Button(role: .destructive, action: delete) { Image(systemName: "trash") }
                     .frame(width: 44, height: 44).disabled(!usable).accessibilityLabel("删除这条录音")
