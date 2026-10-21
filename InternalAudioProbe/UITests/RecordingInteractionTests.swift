@@ -10,10 +10,13 @@ final class RecordingInteractionTests: XCTestCase {
         export.tap()
         // The fixture deliberately keeps the old recording.m4a source URL.
         // The actual system share preview must receive the timestamp alias.
-        let name = app.staticTexts.matching(NSPredicate(format: "label MATCHES %@",
-            "^[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{2}-[0-9]{2}-[0-9]{2}(\\.m4a)?$")).firstMatch
+        // LinkPresentation exposes the system preview caption as Other, not StaticText.
+        let name = app.otherElements["LP.CaptionBar.TopCaption"].firstMatch
         XCTAssertTrue(name.waitForExistence(timeout: 10), app.debugDescription)
-        XCTAssertFalse(app.staticTexts["recording"].exists)
+        XCTAssertTrue(NSPredicate(format: "SELF MATCHES %@",
+            "^[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{2}-[0-9]{2}-[0-9]{2}(\\.m4a)?$").evaluate(with: name.label), name.label)
+        XCTAssertTrue(app.navigationBars[name.label].exists)
+        XCTAssertFalse(name.label == "recording" || name.label == "recording.m4a")
         snapshot(app, "timestamp-audio-export-name")
     }
 
