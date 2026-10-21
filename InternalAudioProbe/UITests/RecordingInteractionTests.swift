@@ -109,8 +109,7 @@ final class RecordingInteractionTests: XCTestCase {
         let from = slider.coordinate(withNormalizedOffset: CGVector(dx: thumb, dy: 0.5))
         let to = slider.coordinate(withNormalizedOffset: CGVector(dx: 0.73, dy: 0.5))
         from.press(forDuration: 0.1, thenDragTo: to)
-        expectation(for: NSPredicate(format: "value CONTAINS %@", "定位提交 1"), evaluatedWith: slider)
-        waitForExpectations(timeout: 5)
+        assertSeekCommit(1, in: app)
         XCTAssertTrue(app.staticTexts["正在播放"].exists)
         app.buttons["暂停"].firstMatch.tap()
         XCTAssertTrue(app.staticTexts["已暂停"].firstMatch.waitForExistence(timeout: 2))
@@ -119,8 +118,7 @@ final class RecordingInteractionTests: XCTestCase {
         XCTAssertGreaterThan((current.first ?? 0) * 60 + (current.last ?? 0), 30)
         snapshot(app, "compact-recording-waveform-after-scrub")
         slider.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.5)).tap()
-        expectation(for: NSPredicate(format: "value CONTAINS %@", "定位提交 2"), evaluatedWith: slider)
-        waitForExpectations(timeout: 5)
+        assertSeekCommit(2, in: app)
         XCTAssertTrue(app.staticTexts["已暂停"].exists)
         let tappedTime = app.staticTexts["playback-time"].firstMatch.label
         let tapped = tappedTime.components(separatedBy: " / ")[0].split(separator: ":").compactMap { Int($0) }
@@ -129,8 +127,7 @@ final class RecordingInteractionTests: XCTestCase {
         snapshot(app, "integrated-waveform-tap-to-seek")
         slider.coordinate(withNormalizedOffset: CGVector(dx: 0.4, dy: 0.5)).press(forDuration: 0.1,
             thenDragTo: slider.coordinate(withNormalizedOffset: CGVector(dx: 0.86, dy: 0.5)))
-        expectation(for: NSPredicate(format: "value CONTAINS %@", "定位提交 3"), evaluatedWith: slider)
-        waitForExpectations(timeout: 5)
+        assertSeekCommit(3, in: app)
         XCTAssertTrue(app.staticTexts["已暂停"].exists)
         let finalTime = app.staticTexts["playback-time"].firstMatch.label
         let final = finalTime.components(separatedBy: " / ")[0].split(separator: ":").compactMap { Int($0) }
@@ -151,8 +148,7 @@ final class RecordingInteractionTests: XCTestCase {
         let start = slider.coordinate(withNormalizedOffset: CGVector(dx: 9 / slider.frame.width, dy: 0.5))
         start.press(forDuration: 0.1,
             thenDragTo: slider.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)))
-        expectation(for: NSPredicate(format: "value CONTAINS %@", "定位提交 1"), evaluatedWith: slider)
-        waitForExpectations(timeout: 5)
+        assertSeekCommit(1, in: app)
         XCTAssertTrue(app.staticTexts["已暂停"].firstMatch.exists)
         let middleSecond = elapsedSeconds(clock)
         let middlePercent = progressPercent(slider)
@@ -169,6 +165,18 @@ final class RecordingInteractionTests: XCTestCase {
         app.buttons["暂停"].firstMatch.tap()
         XCTAssertTrue(app.staticTexts["已暂停"].firstMatch.waitForExistence(timeout: 2))
     }
+    private func assertSeekCommit(_ count: Int, in app: XCUIApplication,
+                                  file: StaticString = #filePath, line: UInt = #line) {
+        // A bound XCUIElement can retain the value from before a drag completed.
+        // Re-query the actual waveform on every poll, retaining the original deadline.
+        let commit = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            let cursor = app.descendants(matching: .any)["audio-progress"].firstMatch
+            guard cursor.exists else { return false }
+            return (cursor.value as? String ?? "").contains("定位提交 \(count)")
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [commit], timeout: 5), .completed,
+                       "The waveform must commit exactly the requested seek", file: file, line: line)
+    }
     private func assertProgressAdvances(in app: XCUIApplication, after seconds: Int, percent: Double,
                                        file: StaticString = #filePath, line: UInt = #line) {
         // Binding an XCUIElement as a block predicate's object pins its old snapshot.
@@ -176,6 +184,7 @@ final class RecordingInteractionTests: XCTestCase {
         let advance = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
             let freshClock = app.staticTexts["playback-time"].firstMatch
             let freshCursor = app.descendants(matching: .any)["audio-progress"].firstMatch
+            guard freshClock.exists, freshCursor.exists else { return false }
             return self.elapsedSeconds(freshClock) >= seconds + 3 && self.progressPercent(freshCursor) > percent
         }, object: nil)
         XCTAssertEqual(XCTWaiter.wait(for: [advance], timeout: 12), .completed,
