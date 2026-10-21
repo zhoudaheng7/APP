@@ -6,12 +6,16 @@ final class MicrophoneCapture {
     private let engine = AVAudioEngine()
     private var installed = false
     private var ownsSession = false
+    private var previousHapticsPolicy: Bool?
     func start(mixer: AudioMixWriter) throws {
         pause()
         let session = AVAudioSession.sharedInstance()
         try session.setCategory(.playAndRecord, mode: .default, options: [.mixWithOthers, .defaultToSpeaker, .allowBluetoothHFP])
         try session.setActive(true)
         ownsSession = true
+        if previousHapticsPolicy == nil { previousHapticsPolicy = session.allowHapticsAndSystemSoundsDuringRecording }
+        // Permit start feedback for our own microphone session; failure must not stop audio.
+        try? session.setAllowHapticsAndSystemSoundsDuringRecording(true)
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
         guard format.sampleRate > 0, format.channelCount > 0 else { throw AudioError.unsupportedFormat }
@@ -34,7 +38,10 @@ final class MicrophoneCapture {
         pause()
         guard ownsSession else { return }
         ownsSession = false
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        let session = AVAudioSession.sharedInstance()
+        try? session.setActive(false, options: .notifyOthersOnDeactivation)
+        if let previousHapticsPolicy { try? session.setAllowHapticsAndSystemSoundsDuringRecording(previousHapticsPolicy) }
+        previousHapticsPolicy = nil
     }
     deinit { stop() }
 }

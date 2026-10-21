@@ -38,6 +38,7 @@ final class CaptureController: NSObject, ObservableObject {
     private var captureAttempt: UUID?
 #endif
     private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
+    private let recordingFeedback = RecordingFeedback()
     let root: URL
 
     override init() {
@@ -146,6 +147,7 @@ final class CaptureController: NSObject, ObservableObject {
             }
             guard phase == .starting else { return }
             phase = .recording
+            recordingFeedback.started()
             status = microphoneInterrupted ? "录制中 · 麦克风已暂停" : "录制中"
             if liveActivity == nil { status += " · 请从 App 或系统停止" }
             // Keep the picker active for the entire stream, including when backgrounded.
@@ -185,6 +187,7 @@ final class CaptureController: NSObject, ObservableObject {
         microphone?.stop()
         microphone = nil
         guard let writer else {
+            recordingFeedback.stopped()
             phase = .idle
             status = reason ?? "已取消。"
             endBackgroundTask()
@@ -198,6 +201,7 @@ final class CaptureController: NSObject, ObservableObject {
             if let mix { mix.finish(reason: reason, completion: completion) }
             else { writer.finish(reason: reason, completion: completion) }
         }
+        recordingFeedback.stopped()
         if let liveActivity {
             let message = completed.segments.contains(where: { $0.state == "complete" }) ? "已保存" : "录音需检查"
             await liveActivity.end(ActivityContent(state: .init(message: message), staleDate: nil), dismissalPolicy: .immediate)

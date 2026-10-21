@@ -8,6 +8,7 @@ final class SampleHandler: RPBroadcastSampleHandler, @unchecked Sendable {
     private var mixer: AudioMixWriter?
     private var activityTimer: DispatchSourceTimer?
     private var activeMarker: URL?
+    private let recordingFeedback = RecordingFeedback()
 
     override func broadcastStarted(withSetupInfo setupInfo: [String: NSObject]?) {
         do {
@@ -16,6 +17,7 @@ final class SampleHandler: RPBroadcastSampleHandler, @unchecked Sendable {
             let output = try AudioSegmentWriter(root: root, captureSource: "control-center", microphoneRequested: useMic)
             output.onFatalError = { [weak self] message in
                 DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                    self?.recordingFeedback.stopped()
                     self?.finishBroadcastWithError(NSError(domain: "InternalAudioProbe", code: 2,
                         userInfo: [NSLocalizedDescriptionKey: message]))
                 }
@@ -36,6 +38,7 @@ final class SampleHandler: RPBroadcastSampleHandler, @unchecked Sendable {
             }
             heartbeat.resume()
             activityTimer = heartbeat
+            recordingFeedback.started()
         } catch {
             finishBroadcastWithError(error)
         }
@@ -56,6 +59,7 @@ final class SampleHandler: RPBroadcastSampleHandler, @unchecked Sendable {
         activityTimer?.cancel()
         activityTimer = nil
         defer {
+            recordingFeedback.stopped()
             if let activeMarker { try? FileManager.default.removeItem(at: activeMarker) }
             activeMarker = nil
         }
