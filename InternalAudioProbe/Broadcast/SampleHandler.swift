@@ -10,13 +10,8 @@ final class SampleHandler: RPBroadcastSampleHandler, @unchecked Sendable {
     private var activeMarker: URL?
 
     override func broadcastStarted(withSetupInfo setupInfo: [String: NSObject]?) {
-        guard let root = RecordingPaths.sharedRoot else {
-            finishBroadcastWithError(NSError(domain: "InternalAudioProbe", code: 1, userInfo: [
-                NSLocalizedDescriptionKey: "共享存储不可用，请从声屿 App 开始录音。"
-            ]))
-            return
-        }
         do {
+            let root = try RecordingPaths.verifySharedAccess()
             let useMic = RecordingPaths.microphonePreference
             let output = try AudioSegmentWriter(root: root, captureSource: "control-center", microphoneRequested: useMic)
             output.onFatalError = { [weak self] message in

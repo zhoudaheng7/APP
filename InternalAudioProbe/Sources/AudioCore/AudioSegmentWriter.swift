@@ -20,6 +20,18 @@ public final class AudioSegmentWriter: @unchecked Sendable {
     private var accepting = true
     private var finishing = false
     private var lastPublication = Date.distantPast
+    // Bound retained PCM even when storage or the encoder cannot keep up. Metadata
+    // updates share one coalesced work item, rather than queuing per video frame.
+    private let ingress = NSLock()
+    private let maximumPendingAudioBuffers = 128
+    private let maximumPendingAudioBytes = 4 * 1024 * 1024
+    private var pendingAudioBuffers = 0
+    private var pendingAudioBytes = 0
+    private var ingressClosed = false
+    private var countersQueued = false
+    private var discardedVideoFrames = 0
+    private var microphoneBuffers = 0
+    private var failureReported = false
 
     public init(root: URL, segmentLength: Double = .infinity, captureSource: String? = nil, microphoneRequested: Bool = false) throws {
         self.segmentLength = segmentLength
@@ -29,11 +41,41 @@ public final class AudioSegmentWriter: @unchecked Sendable {
         self.report = report
         folder = root.appendingPathComponent(report.id.uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+#if os(iOS)
+        // User-initiated captures may continue after the screen locks. New files
+        // remain protected, while access stays available after the first unlock.
+        try FileManager.default.setAttributes([.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication],
+                                             ofItemAtPath: folder.path)
+#endif
         try persist()
     }
 
     public func append(_ sample: CMSampleBuffer) {
+        let sampleBytes = max(1, CMSampleBufferGetTotalSampleSize(sample))
+        ingress.lock()
+        guard !ingressClosed else { ingress.unlock(); return }
+        guard pendingAudioBuffers < maximumPendingAudioBuffers,
+              sampleBytes <= maximumPendingAudioBytes,
+              pendingAudioBytes <= maximumPendingAudioBytes - sampleBytes else {
+            ingressClosed = true
+            queue.async { [self] in
+                report.droppedBuffers += 1
+                fail(AudioError.inputOverflow)
+            }
+            ingress.unlock()
+            return
+        }
+        pendingAudioBuffers += 1
+        pendingAudioBytes += sampleBytes
+        // Enqueue while holding the ingress lock so finish cannot overtake an
+        // already accepted sample from another capture callback queue.
         queue.async { [self] in
+            defer {
+                ingress.lock()
+                pendingAudioBuffers -= 1
+                pendingAudioBytes -= sampleBytes
+                ingress.unlock()
+            }
             guard accepting, CMSampleBufferIsValid(sample), CMSampleBufferDataIsReady(sample),
                   let description = CMSampleBufferGetFormatDescription(sample),
                   let format = CMAudioFormatDescriptionGetStreamBasicDescription(description)?.pointee else { return }
@@ -68,25 +110,49 @@ public final class AudioSegmentWriter: @unchecked Sendable {
                 publish()
             } catch { fail(error) }
         }
+        ingress.unlock()
     }
 
     public func discardVideoFrame() {
-        queue.async { [self] in
-            guard accepting else { return }
-            report.videoFramesDiscarded += 1
-            // No pixel buffer is retained, encoded, copied, or written to disk.
-        }
+        ingress.lock()
+        guard !ingressClosed else { ingress.unlock(); return }
+        discardedVideoFrames += 1
+        enqueueCountersIfNeeded()
+        ingress.unlock()
+        // No pixel buffer is retained, encoded, copied, or written to disk.
     }
 
     public func noteMicrophoneInput() {
+        ingress.lock()
+        guard !ingressClosed else { ingress.unlock(); return }
+        microphoneBuffers += 1
+        enqueueCountersIfNeeded()
+        ingress.unlock()
+    }
+
+    // Caller holds ingress. At most one pending metadata block exists.
+    private func enqueueCountersIfNeeded() {
+        guard !countersQueued else { return }
+        countersQueued = true
         queue.async { [self] in
+            ingress.lock()
+            let video = discardedVideoFrames, mic = microphoneBuffers
+            discardedVideoFrames = 0
+            microphoneBuffers = 0
+            countersQueued = false
+            ingress.unlock()
             guard accepting else { return }
-            report.microphoneRecorded = true
-            report.microphoneBuffers = (report.microphoneBuffers ?? 0) + 1
+            report.videoFramesDiscarded += video
+            if mic > 0 {
+                report.microphoneRecorded = true
+                report.microphoneBuffers = (report.microphoneBuffers ?? 0) + mic
+            }
         }
     }
 
     public func finish(reason: String? = nil, completion: @escaping @Sendable (SessionReport) -> Void) {
+        ingress.lock()
+        ingressClosed = true
         queue.async { [self] in
             guard !finishing else { return }
             finishing = true
@@ -104,11 +170,12 @@ public final class AudioSegmentWriter: @unchecked Sendable {
                 completion(report)
             }
         }
+        ingress.unlock()
     }
 
     private func openSegment(description: CMFormatDescription, format: AudioStreamBasicDescription, timestamp: CMTime) throws {
         let index = report.segments.count
-        let name = segmentLength.isInfinite && index == 0 ? "recording.m4a" : String(format: "part-%03d.m4a", index + 1)
+        let name = RecordingName.audioFile(startedAt: report.startedAt, index: index)
         let assetWriter = try AVAssetWriter(outputURL: folder.appendingPathComponent(name), fileType: .m4a)
         let settings: [String: Any] = [
             AVFormatIDKey: kAudioFormatMPEG4AAC,
@@ -160,6 +227,11 @@ public final class AudioSegmentWriter: @unchecked Sendable {
     }
 
     private func fail(_ error: Error) {
+        guard !failureReported else { return }
+        failureReported = true
+        ingress.lock()
+        ingressClosed = true
+        ingress.unlock()
         accepting = false
         report.error = error.localizedDescription
         report.state = "interrupted"
@@ -183,11 +255,12 @@ public final class AudioSegmentWriter: @unchecked Sendable {
 }
 
 public enum AudioError: LocalizedError {
-    case encodingFailed, unsupportedFormat
+    case encodingFailed, unsupportedFormat, inputOverflow
     public var errorDescription: String? {
         switch self {
         case .encodingFailed: return "音频编码失败，已完成的分段仍保留。"
         case .unsupportedFormat: return "当前内部音频格式无法编码。"
+        case .inputOverflow: return "音频写入积压，录制已停止；部分输入未保存。"
         }
     }
 }

@@ -28,6 +28,10 @@ jobs:
           xcodebuild -version | tee dist/toolchain.txt
           xcrun --sdk iphoneos --show-sdk-version | tee -a dist/toolchain.txt
           xcrun --sdk iphoneos --show-sdk-version | grep -E '^27\.'
+      - name: Verify signed-package checker with synthetic fixtures
+        run: |
+          set -euo pipefail
+          python3 scripts/test_verify_signed_ipa.py 2>&1 | tee dist/signing-checks.log
       - name: Test actual audio encoding and inspect file tracks
         run: |
           set -euo pipefail
@@ -53,6 +57,7 @@ jobs:
           git rev-parse HEAD > dist/source-commit.txt
           cp README.md dist/INSTALL.txt
           cp SIGNING.md dist/SIGNING.txt
+          cp scripts/verify_signed_ipa.py dist/verify_signed_ipa.py
           cp Design/OPEN-SOURCE.md dist/OPEN-SOURCE.txt
           cp Design/DEVICE-CHECKS.md dist/DEVICE-CHECKS.txt
           cp App/Resources/HaishinKit-LICENSE.txt dist/HaishinKit-LICENSE.txt

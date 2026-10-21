@@ -25,15 +25,21 @@ public final class AudioMixWriter: @unchecked Sendable {
     private var lastSourceTime: [Int: Int64] = [:]
     private let gate = NSLock()
     private var pending = 0
+    private var ingressClosed = false
     public var onError: (@Sendable (String) -> Void)?
 
     public init(writer: AudioSegmentWriter) { self.writer = writer }
 
     public func append(_ sample: CMSampleBuffer, track: Track) {
         gate.lock()
-        guard pending < 32 else { gate.unlock(); queue.async { self.fail("混音处理跟不上音频输入，录制已停止以保护已存文件。") }; return }
+        guard !ingressClosed else { gate.unlock(); return }
+        guard pending < 32 else {
+            ingressClosed = true
+            queue.async { self.fail("混音处理积压，录制已停止；部分输入未保存。") }
+            gate.unlock()
+            return
+        }
         pending += 1
-        gate.unlock()
         queue.async { [self] in
             defer { gate.lock(); pending -= 1; gate.unlock() }
             guard !finished, !failed else { return }
@@ -46,7 +52,6 @@ public final class AudioMixWriter: @unchecked Sendable {
                 let start = CMTimeConvertScale(time, timescale: 48_000, method: .roundHalfAwayFromZero).value
                 if let previous = lastSourceTime[track.rawValue], start <= previous { return }
                 lastSourceTime[track.rawValue] = start
-                if let cursor, abs(start - cursor) > 480_000 { throw MixError.clockMismatch }
                 let frames = CMSampleBufferGetNumSamples(sample)
                 guard frames > 0, frames <= 96_000,
                       let input = AVAudioPCMBuffer(pcmFormat: sourceFormat, frameCapacity: AVAudioFrameCount(frames)) else { throw AudioError.unsupportedFormat }
@@ -71,6 +76,9 @@ public final class AudioMixWriter: @unchecked Sendable {
                 guard output.frameLength > 0, let channels = output.floatChannelData else { return }
                 let values = (0..<2).map { Array(UnsafeBufferPointer(start: channels[$0], count: Int(output.frameLength))) }
                 let packet = Packet(start: start, samples: values)
+                // A source may resume after silence or deliver late buffers. Old
+                // packets cannot change already written audio and must not pile up.
+                if let cursor, packet.end <= cursor { return }
                 if cursor == nil { cursor = start }
                 packets[track.rawValue].append(packet)
                 packets[track.rawValue].sort { $0.start < $1.start }
@@ -80,9 +88,12 @@ public final class AudioMixWriter: @unchecked Sendable {
                 try flush(until: end - 7_200)
             } catch { fail(error.localizedDescription) }
         }
+        gate.unlock()
     }
 
     public func finish(reason: String? = nil, completion: @escaping @Sendable (SessionReport) -> Void) {
+        gate.lock()
+        ingressClosed = true
         queue.async { [self] in
             guard !finished else { return }
             finished = true
@@ -90,11 +101,13 @@ public final class AudioMixWriter: @unchecked Sendable {
             packets = [[], []]
             writer.finish(reason: reason ?? failureMessage, completion: completion)
         }
+        gate.unlock()
     }
 
     private func flush(until limit: Int64) throws {
         guard var position = cursor else { return }
         while position < limit {
+            for track in 0..<2 { packets[track].removeAll { $0.end <= position } }
             // A suspension must not allocate/fill an unbounded gap.
             if let first = packets.flatMap({ $0 }).map(\.start).min(), first - position > 96_000 { position = first }
             let count = Int(min(480, limit - position))
@@ -137,10 +150,12 @@ public final class AudioMixWriter: @unchecked Sendable {
     }
 
     private func fail(_ message: String) {
-        guard !failed else { return }; failed = true; failureMessage = message; onError?(message)
-    }
-    private enum MixError: LocalizedError {
-        case clockMismatch
-        var errorDescription: String? { "两路音频时钟不一致，已停止混音。请重新开始录制。" }
+        guard !failed else { return }
+        failed = true
+        failureMessage = message
+        gate.lock()
+        ingressClosed = true
+        gate.unlock()
+        onError?(message)
     }
 }

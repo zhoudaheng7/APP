@@ -5,10 +5,13 @@ import AVFoundation
 final class MicrophoneCapture {
     private let engine = AVAudioEngine()
     private var installed = false
+    private var ownsSession = false
     func start(mixer: AudioMixWriter) throws {
+        pause()
         let session = AVAudioSession.sharedInstance()
         try session.setCategory(.playAndRecord, mode: .default, options: [.mixWithOthers, .defaultToSpeaker, .allowBluetoothHFP])
         try session.setActive(true)
+        ownsSession = true
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
         guard format.sampleRate > 0, format.channelCount > 0 else { throw AudioError.unsupportedFormat }
@@ -20,11 +23,17 @@ final class MicrophoneCapture {
         }
         installed = true
         engine.prepare()
-        try engine.start()
+        do { try engine.start() }
+        catch { pause(); throw error }
     }
-    func stop() {
+    func pause() {
         engine.stop()
         if installed { engine.inputNode.removeTap(onBus: 0); installed = false }
+    }
+    func stop() {
+        pause()
+        guard ownsSession else { return }
+        ownsSession = false
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
     deinit { stop() }

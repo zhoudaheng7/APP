@@ -73,7 +73,7 @@ final class AudioCoreTests: XCTestCase {
         try Data([0]).write(to: writer.folder.appendingPathComponent("unfinished.m4a"))
         try Data("{}".utf8).write(to: writer.folder.appendingPathComponent("inspection.json"))
         let files = RecordingFiles.audioForExport(report: report, folder: writer.folder)
-        XCTAssertEqual(files.map(\.lastPathComponent), ["recording.m4a"])
+        XCTAssertEqual(files.map(\.lastPathComponent), [RecordingName.audioFile(startedAt: report.startedAt, index: 0)])
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: writer.folder.path).count, 4)
     }
 

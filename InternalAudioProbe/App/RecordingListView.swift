@@ -106,8 +106,8 @@ struct RecorderView: View {
                 HStack {
                     Text("已录 \(RecordingCardView.clock(report.audioSeconds))")
                     Spacer()
-                    Text(report.audioSeconds > 5 && report.nonSilentBuffers == 0 ? "未检测到声音" : report.nonSilentBuffers > 0 ? "已检测到声音" : "等待声音")
-                        .foregroundStyle(report.audioSeconds > 5 && report.nonSilentBuffers == 0 ? Color.orange : .secondary)
+                    Text(recorder.microphoneInterrupted ? "麦克风已暂停" : report.audioSeconds > 5 && report.nonSilentBuffers == 0 ? "未检测到声音" : report.nonSilentBuffers > 0 ? "已检测到声音" : "等待声音")
+                        .foregroundStyle(recorder.microphoneInterrupted || (report.audioSeconds > 5 && report.nonSilentBuffers == 0) ? Color.orange : .secondary)
                 }.font(.system(size: 11, design: .monospaced))
                 if let error = report.error {
                     Text(error).font(.system(size: 11)).foregroundStyle(.orange).lineLimit(2)
@@ -117,6 +117,12 @@ struct RecorderView: View {
             } else {
                 Text(recorder.externalRecording ? "控制中心录音中 · 从系统停止" : recorder.status)
                     .font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(2)
+            }
+            if !recorder.controlCenterAvailable {
+                Button { showHelp = true } label: {
+                    Label("控制中心暂不可用", systemImage: "exclamationmark.circle")
+                        .font(.system(size: 10)).foregroundStyle(.orange)
+                }.accessibilityIdentifier("shared-storage-unavailable")
             }
             Rectangle().fill(Color.white.opacity(0.06)).frame(height: 0.5)
             HStack {
@@ -160,6 +166,9 @@ struct RecorderView: View {
                 Text("停止：长按灵动岛点「停止并保存」，或回到 App 停止。")
                 Text("控制中心：长按「录屏」，选择「声屿 · 仅音频」开始，从系统录屏按钮停止。")
                 Text("控制中心混音需开启麦克风。")
+                if let issue = recorder.controlCenterIssue {
+                    Text(issue).foregroundStyle(.orange)
+                }
                 Text("快捷指令：搜索「声屿」，选择录音菜单或任一模式。")
                 Text("合并保留原件；删除无法撤销。").font(.caption).foregroundStyle(.secondary)
             }.padding(20).font(.subheadline) }
@@ -205,6 +214,11 @@ private struct RecordingCardView: View {
     let delete: () -> Void
     @State private var showCheckDetail = false
     private var usable: Bool { enabled && !session.isActive }
+    private var shareItems: [AudioShareItem] {
+        session.exportFiles.enumerated().map {
+            AudioShareItem(url: $0.element, startedAt: session.report.startedAt, index: $0.offset)
+        }
+    }
     private var title: String {
         session.report.captureSource == "merged" ? "合并录音" : session.report.microphoneRecorded ? "混音录音" : session.report.captureSource == "control-center" ? "控制中心" : "内部录音"
     }
@@ -255,7 +269,7 @@ private struct RecordingCardView: View {
                     Button(action: merge) { Image(systemName: "arrow.triangle.merge") }
                         .frame(width: 44, height: 44).disabled(!usable).accessibilityLabel("合并为一个音频文件")
                 }
-                ShareLink(items: session.exportFiles) { Image(systemName: "square.and.arrow.up") }
+                ShareLink(items: shareItems, preview: { SharePreview($0.filename) }) { Image(systemName: "square.and.arrow.up") }
                     .frame(width: 44, height: 44).disabled(session.exportFiles.isEmpty || session.isActive).accessibilityLabel("导出音频")
                 Button(role: .destructive, action: delete) { Image(systemName: "trash") }
                     .frame(width: 44, height: 44).disabled(!usable).accessibilityLabel("删除这条录音")

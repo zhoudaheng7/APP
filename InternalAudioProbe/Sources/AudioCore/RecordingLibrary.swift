@@ -24,7 +24,8 @@ public enum RecordingLibrary {
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         // Only this freshly created destination is removed on failure; source records stay intact.
         do {
-            let audioURL = folder.appendingPathComponent("recording.m4a")
+            let filename = RecordingName.audioFile(startedAt: report.startedAt, index: 0)
+            let audioURL = folder.appendingPathComponent(filename)
             guard let export = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetAppleM4A) else { throw LibraryError.exportFailed }
             try await export.export(to: audioURL, as: .m4a)
             let result = AVURLAsset(url: audioURL)
@@ -34,7 +35,7 @@ public enum RecordingLibrary {
             report.audioSeconds = CMTimeGetSeconds(try await result.load(.duration))
             report.state = "finished"
             report.endedAt = Date()
-            report.segments = [AudioSegment(id: 0, filename: "recording.m4a", duration: report.audioSeconds, state: "complete")]
+            report.segments = [AudioSegment(id: 0, filename: filename, duration: report.audioSeconds, state: "complete")]
             let encoder = JSONEncoder()
             encoder.dateEncodingStrategy = .iso8601
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]

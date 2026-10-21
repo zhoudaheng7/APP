@@ -22,7 +22,7 @@ final class AudioMixTests: XCTestCase {
         XCTAssertEqual(report.microphoneBuffers, 380)
         XCTAssertEqual(report.rejectedTimestamps, 0)
         XCTAssertEqual(report.droppedBuffers, 0)
-        let url = writer.folder.appendingPathComponent("recording.m4a")
+        let url = writer.folder.appendingPathComponent(try XCTUnwrap(report.segments.first).filename)
         let file = try AVAudioFile(forReading: url)
         let pcm = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: AVAudioFrameCount(file.length))!
         try file.read(into: pcm)

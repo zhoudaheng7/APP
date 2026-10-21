@@ -1,6 +1,22 @@
 import XCTest
 
 final class RecordingInteractionTests: XCTestCase {
+    func testAudioExportUsesStartTimeForLegacyRecording() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launch()
+        let export = app.buttons["导出音频"].firstMatch
+        reveal(export, in: app)
+        export.tap()
+        // The fixture deliberately keeps the old recording.m4a source URL.
+        // The actual system share preview must receive the timestamp alias.
+        let name = app.staticTexts.matching(NSPredicate(format: "label MATCHES %@",
+            "^[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{2}-[0-9]{2}-[0-9]{2}(\\.m4a)?$")).firstMatch
+        XCTAssertTrue(name.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertFalse(app.staticTexts["recording"].exists)
+        snapshot(app, "timestamp-audio-export-name")
+    }
+
     func testQuickMenuModesAreDirectAndPhoneFeaturesRemoved() {
         continueAfterFailure = false
         let app = XCUIApplication()
