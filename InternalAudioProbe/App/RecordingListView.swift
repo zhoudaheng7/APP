@@ -165,7 +165,7 @@ struct RecorderView: View {
                 Text("开始：选择模式，点「开始内录」，确认系统授权后切到播放 App。")
                 Text("停止：长按灵动岛点「停止并保存」，或回到 App 停止。")
                 Text("控制中心：长按「录屏」，选择「声屿 · 仅音频」开始，从系统录屏按钮停止。")
-                Text("控制中心混音需开启麦克风。")
+                Text("录屏面板底部：麦克风关录内部音，开则加入麦克风。")
                 if let issue = recorder.controlCenterIssue {
                     Text(issue).foregroundStyle(.orange)
                 }

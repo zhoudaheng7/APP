@@ -13,8 +13,7 @@ final class SampleHandler: RPBroadcastSampleHandler, @unchecked Sendable {
     override func broadcastStarted(withSetupInfo setupInfo: [String: NSObject]?) {
         do {
             let root = try RecordingPaths.verifySharedAccess()
-            let useMic = RecordingPaths.microphonePreference
-            let output = try AudioSegmentWriter(root: root, captureSource: "control-center", microphoneRequested: useMic)
+            let output = try AudioSegmentWriter(root: root, captureSource: "control-center")
             output.onFatalError = { [weak self] message in
                 DispatchQueue.global(qos: .userInitiated).async { [weak self] in
                     self?.recordingFeedback.stopped()
@@ -23,11 +22,11 @@ final class SampleHandler: RPBroadcastSampleHandler, @unchecked Sendable {
                 }
             }
             writer = output
-            if useMic {
-                let mix = AudioMixWriter(writer: output)
-                mix.onError = output.onFatalError
-                mixer = mix
-            }
+            // The native Control Center switch owns microphone capture. Consume
+            // only the mic buffers ReplayKit supplies; App mode preferences do not apply.
+            let mix = AudioMixWriter(writer: output, microphoneFollowsInput: true)
+            mix.onError = output.onFatalError
+            mixer = mix
             let marker = output.folder.appendingPathComponent(".active")
             try Data().write(to: marker)
             activeMarker = marker

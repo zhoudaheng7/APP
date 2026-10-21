@@ -14,6 +14,8 @@ public final class AudioMixWriter: @unchecked Sendable {
     }
     private let queue = DispatchQueue(label: "com.lightsquare.audio-mix", qos: .userInitiated)
     private let writer: AudioSegmentWriter
+    private let microphoneFollowsInput: Bool
+    private var microphoneSignalStart: Int64?
     private let format = AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 2)!
     private var converters: [Int: AVAudioConverter] = [:]
     private var packets: [[Packet]] = [[], []]
@@ -28,7 +30,10 @@ public final class AudioMixWriter: @unchecked Sendable {
     private var ingressClosed = false
     public var onError: (@Sendable (String) -> Void)?
 
-    public init(writer: AudioSegmentWriter) { self.writer = writer }
+    public init(writer: AudioSegmentWriter, microphoneFollowsInput: Bool = false) {
+        self.writer = writer
+        self.microphoneFollowsInput = microphoneFollowsInput
+    }
 
     public func append(_ sample: CMSampleBuffer, track: Track) {
         gate.lock()
@@ -83,7 +88,14 @@ public final class AudioMixWriter: @unchecked Sendable {
                 packets[track.rawValue].append(packet)
                 packets[track.rawValue].sort { $0.start < $1.start }
                 end = max(end, packet.end)
-                if track == .microphone { writer.noteMicrophoneInput() }
+                if track == .microphone {
+                    // ReplayKit may supply muted placeholders. In automatic mode,
+                    // infer a live microphone only when its PCM contains a signal.
+                    if !microphoneFollowsInput || values.contains(where: { $0.contains { abs($0) > 0.0001 } }) {
+                        if microphoneSignalStart == nil { microphoneSignalStart = start }
+                        writer.noteMicrophoneInput()
+                    }
+                }
                 // 150 ms reorder window lets either source arrive first; bounded by input time.
                 try flush(until: end - 7_200)
             } catch { fail(error.localizedDescription) }
@@ -117,12 +129,14 @@ public final class AudioMixWriter: @unchecked Sendable {
             let channels = pcm.floatChannelData!
             for channel in 0..<2 { channels[channel].initialize(repeating: 0, count: count) }
             for track in 0..<2 {
+                let internalOnly = microphoneFollowsInput && (microphoneSignalStart == nil || position < microphoneSignalStart!)
+                let gain: Float = track == 0 && internalOnly ? 1 : 0.5
                 for packet in packets[track] where packet.start < position + Int64(count) && packet.end > position {
                     let lower = max(position, packet.start), upper = min(position + Int64(count), packet.end)
                     for frame in lower..<upper {
                         for channel in 0..<2 {
                             // Headroom for correlated sources, no wraparound or sample clipping.
-                            channels[channel][Int(frame - position)] += packet.samples[channel][Int(frame - packet.start)] * 0.5
+                            channels[channel][Int(frame - position)] += packet.samples[channel][Int(frame - packet.start)] * gain
                         }
                     }
                 }

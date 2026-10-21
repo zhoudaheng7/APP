@@ -144,6 +144,7 @@ public final class AudioSegmentWriter: @unchecked Sendable {
             guard accepting else { return }
             report.videoFramesDiscarded += video
             if mic > 0 {
+                report.microphoneRequested = true
                 report.microphoneRecorded = true
                 report.microphoneBuffers = (report.microphoneBuffers ?? 0) + mic
             }
