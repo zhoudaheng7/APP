@@ -379,17 +379,11 @@ struct AudioCheck {
 #if canImport(ScreenCaptureKit)
 extension CaptureController: SCContentSharingPickerObserver {
     nonisolated func contentSharingPicker(_ picker: SCContentSharingPicker, didUpdateWith filter: SCContentFilter, for stream: SCStream?) {
+        // iOS has no SCStream.updateContentFilter API. This app presents the picker
+        // only before recording; callbacks for an existing stream must not restart it.
+        guard stream == nil else { return }
         Task { @MainActor in
-            if let stream {
-                guard self.stream === stream, [.starting, .recording].contains(self.phase) else { return }
-                do { try await stream.updateContentFilter(filter) }
-                catch {
-                    guard self.stream === stream else { return }
-                    await self.stop(reason: Self.captureError(error, prefix: "更新采集失败"))
-                }
-            } else {
-                await self.begin(with: filter)
-            }
+            await self.begin(with: filter)
         }
     }
     nonisolated func contentSharingPicker(_ picker: SCContentSharingPicker, didCancelFor stream: SCStream?) {
