@@ -42,6 +42,7 @@ struct ReleaseManifest: Decodable {
 
 struct SettingsView: View {
     @Environment(LifeStore.self) private var store
+    @Environment(LifeLocation.self) private var location
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
     @State private var updates = UpdateService()
@@ -51,7 +52,7 @@ struct SettingsView: View {
     var version: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.1.0" }
     var body: some View {
         List {
-            Section { HStack(spacing: 16) { Image(systemName: "sun.horizon.fill").font(.largeTitle).foregroundStyle(.teal.gradient); VStack(alignment: .leading, spacing: 5) { Text("LifeOS").font(.title2.bold()); Text("认真生活，留下自己的轨迹。").font(.caption).foregroundStyle(.secondary) } }.padding(.vertical, 10) }
+            Section { HStack(spacing: 16) { Image("BrandMark").resizable().scaledToFit().frame(width: 64, height: 64).clipShape(RoundedRectangle(cornerRadius: 16)); VStack(alignment: .leading, spacing: 5) { Text("朝屿").font(.title2.bold()); Text("认真生活，留下自己的轨迹。").font(.caption).foregroundStyle(.secondary) } }.padding(.vertical, 10) }
             Section("版本与更新") {
                 LabeledContent("当前版本", value: version + " (" + (Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "1") + ")")
                 Button { Task { await updates.check() } } label: { HStack { Label("检查更新", systemImage: "arrow.triangle.2.circlepath"); Spacer(); if updates.checking { ProgressView() } } }.disabled(updates.checking)
@@ -67,13 +68,17 @@ struct SettingsView: View {
                 Button("准备导出备份", systemImage: "square.and.arrow.up") { backup = store.exportBackup() }
                 if let backup { ShareLink(item: backup) { Label("保存或分享备份文件", systemImage: "doc") } }
                 Button("从备份恢复", systemImage: "arrow.clockwise.icloud") { restorePicker = true }
-                Text("备份包含你的文字和精确位置。请保存到可信位置。恢复会替换 LifeOS 当前记录，建议先导出当前备份。") .font(.caption).foregroundStyle(.secondary)
+                Text("备份包含你的文字和精确位置。请保存到可信位置。恢复会替换 朝屿当前记录，建议先导出当前备份。") .font(.caption).foregroundStyle(.secondary)
+            }
+            if let configured = Bundle.main.object(forInfoDictionaryKey: "LifeOSWorkbenchURL") as? String,
+               let url = URL(string: configured), url.scheme == "https" {
+                Section { Link(destination: url) { Label("打开工作台网页版", systemImage: "safari") } }
             }
             Section("使用边界") {
                 Text("计划与实际分开保存。计时不自动完成任务，位置和路线不自动证明活动或成果。")
                 Text("地点记忆为手动记录；路线只在你主动开启且 App 前台打开时采集。系统日历与 Obsidian 同步尚未启用。")
             }.font(.subheadline).foregroundStyle(.secondary)
-        }.navigationTitle("我的 LifeOS").navigationBarTitleDisplayMode(.inline)
+        }.navigationTitle("我的朝屿").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } }
             .fileImporter(isPresented: $restorePicker, allowedContentTypes: [.json]) { result in
                 do {
@@ -85,9 +90,9 @@ struct SettingsView: View {
                     try candidate.validate(); restoreCandidate = candidate
                 } catch { store.error = "无法读取此备份，当前数据未改变。" }
             }
-            .alert("用备份替换当前 LifeOS 记录？", isPresented: Binding(get: { restoreCandidate != nil }, set: { if !$0 { restoreCandidate = nil } })) {
+            .alert("用备份替换当前 朝屿记录？", isPresented: Binding(get: { restoreCandidate != nil }, set: { if !$0 { restoreCandidate = nil } })) {
                 Button("取消", role: .cancel) { restoreCandidate = nil }
-                Button("恢复", role: .destructive) { if let candidate = restoreCandidate { _ = store.commit(kind: "backup.restore", id: UUID()) { $0 = candidate } }; restoreCandidate = nil }
-            } message: { Text("仅替换 LifeOS 记录。此操作会覆盖当前数据，请确认已经导出需要保留的备份。") }
+                Button("恢复", role: .destructive) { if let candidate = restoreCandidate { location.stopRoute(); _ = store.commit(kind: "backup.restore", id: UUID()) { $0 = candidate } }; restoreCandidate = nil }
+            } message: { Text("仅替换 朝屿记录。此操作会覆盖当前数据，请确认已经导出需要保留的备份。") }
     }
 }

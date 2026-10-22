@@ -1,5 +1,6 @@
 #!/bin/bash
 set -euo pipefail
+export HOMEBREW_NO_AUTO_UPDATE=1
 if [ -d /Applications/Xcode_27.app/Contents/Developer ]; then
   export DEVELOPER_DIR=/Applications/Xcode_27.app/Contents/Developer
 fi

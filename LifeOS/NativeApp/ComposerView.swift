@@ -43,7 +43,7 @@ struct ComposerView: View {
                 case .plan:
                     Section { titleField("安排什么？"); taskPicker; Toggle("这是已有的日历承诺", isOn: $isCommitment) }
                     Section { DatePicker("开始", selection: $start); DatePicker("结束", selection: $end, in: start...) }
-                    Section { Text(isCommitment ? "仅记录已有承诺，不会在系统日历创建事件。" : "私人计划只保存在 LifeOS，不会写入系统日历。") .foregroundStyle(.secondary) }
+                    Section { Text(isCommitment ? "仅记录已有承诺，不会在系统日历创建事件。" : "私人计划只保存在朝屿，不会写入系统日历。") .foregroundStyle(.secondary) }
                 case .goal:
                     Section { titleField("例如：保持阅读的习惯"); TextField("为什么这对你重要？", text: $note, axis: .vertical).lineLimit(3...5) }
                     Section("想看到的成果") { TextField("目标数值，例如 12", text: $value).keyboardType(.decimalPad); TextField("单位，例如 本、次、公里", text: $unit); DatePicker("希望完成于", selection: $end, displayedComponents: .date) }

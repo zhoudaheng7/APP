@@ -12,9 +12,12 @@ import Observation
     private var foreground = true
     private var lastRecorded: CLLocation?
     private var wantsRoute = false
+    private var wantsFix = false
     private var routeSegment = 0
+    var isRecording: Bool { wantsRoute && store?.runningRoute != nil }
     override init() { super.init(); manager.delegate = self; manager.desiredAccuracy = kCLLocationAccuracyBest; manager.distanceFilter = 10; authorization = manager.authorizationStatus }
     func locate() {
+        wantsFix = true
         if manager.authorizationStatus == .notDetermined { manager.requestWhenInUseAuthorization() }
         else if manager.authorizationStatus == .authorizedWhenInUse || manager.authorizationStatus == .authorizedAlways { manager.requestLocation() }
         else { error = "定位尚未开启。可以在 iPhone 设置中允许定位，也可以直接记录地图中心。" }
@@ -26,7 +29,9 @@ import Observation
     }
     private func beginAuthorizedRoute() {
         guard wantsRoute, let store, store.runningRoute != nil || store.startRoute() else { return }
-        lastRecorded = nil; routeSegment += 1; if foreground { manager.startUpdatingLocation() }
+        lastRecorded = nil
+        routeSegment = max(routeSegment, store.runningRoute?.points.map(\.segment).max() ?? 0) + 1
+        if foreground { manager.startUpdatingLocation() }
     }
     func stopRoute() { wantsRoute = false; manager.stopUpdatingLocation(); store?.stopRoute(); lastRecorded = nil }
     func setForeground(_ active: Bool) {
@@ -37,7 +42,7 @@ import Observation
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         authorization = manager.authorizationStatus
         if authorization == .authorizedWhenInUse || authorization == .authorizedAlways {
-            if wantsRoute { beginAuthorizedRoute() } else { manager.requestLocation() }
+            if wantsRoute { beginAuthorizedRoute() } else if wantsFix { manager.requestLocation() }
         } else if authorization == .denied || authorization == .restricted {
             manager.stopUpdatingLocation(); wantsRoute = false
             if store?.runningRoute != nil { store?.stopRoute() }
@@ -47,6 +52,7 @@ import Observation
         guard let fix = locations.last, fix.horizontalAccuracy >= 0, fix.horizontalAccuracy <= 100,
               abs(fix.timestamp.timeIntervalSinceNow) < 30 else { return }
         coordinate = fix.coordinate
+        wantsFix = false
         guard foreground && wantsRoute && store?.runningRoute != nil else { return }
         if let lastRecorded, fix.distance(from: lastRecorded) < 10 || fix.timestamp.timeIntervalSince(lastRecorded.timestamp) < 5 { return }
         self.lastRecorded = fix
@@ -96,9 +102,12 @@ struct PlacesView: View {
                 if let searchError { Text(searchError).font(.caption).foregroundStyle(.secondary) }
                 PrimaryAction(title: "记住地图中心的这里", symbol: "mappin.and.ellipse") { if center != nil { adding = true } }
                 VStack(alignment: .leading, spacing: 10) {
-                    HStack { Label(store.runningRoute == nil ? "走一段自己的路" : "前台路线记录中", systemImage: "figure.walk").font(.headline); Spacer(); if let route = store.runningRoute { Text(route.start, style: .timer).monospacedDigit().font(.subheadline) } }
+                    HStack { Label(store.runningRoute == nil ? "走一段自己的路" : location.isRecording ? "前台路线记录中" : "上次路线已暂停", systemImage: "figure.walk").font(.headline); Spacer(); if let route = store.runningRoute { Text(route.start.formatted(date: .omitted, time: .shortened)).font(.subheadline) } }
                     Text("主动开始与结束。切到后台或锁屏时暂停采集，精确位置只保存在本机。") .font(.caption).foregroundStyle(.secondary)
-                    if store.runningRoute != nil { Button("结束并保存路线", systemImage: "stop.circle") { location.stopRoute() }.buttonStyle(.bordered) }
+                    if store.runningRoute != nil {
+                        if !location.isRecording { Button("继续前台记录", systemImage: "play.circle") { location.startRoute() }.buttonStyle(.bordered) }
+                        Button("结束并保存路线", systemImage: "stop.circle") { location.stopRoute() }.buttonStyle(.bordered)
+                    }
                     else { Button("开始前台路线", systemImage: "play.circle") { showRouteConsent = true }.buttonStyle(.bordered) }
                 }.padding().frame(maxWidth: .infinity, alignment: .leading).background(Color.teal.opacity(0.07), in: RoundedRectangle(cornerRadius: 20))
                 Text("记住的地方").font(.title3.bold())
@@ -118,7 +127,7 @@ struct PlacesView: View {
             }
             .onChange(of: location.coordinate?.latitude) { _, _ in if let coordinate = location.coordinate { camera = .region(MKCoordinateRegion(center: coordinate, span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01))); center = coordinate } }
             .alert("位置暂不可用", isPresented: Binding(get: { location.error != nil }, set: { if !$0 { location.error = nil } })) { Button("知道了") { location.error = nil } } message: { Text(location.error ?? "") }
-            .alert("开始记录前台路线？", isPresented: $showRouteConsent) { Button("开始记录") { location.startRoute() }; Button("取消", role: .cancel) {} } message: { Text("仅在 LifeOS 前台打开时记录位置。后台和锁屏期间不会补画路线，也不会自动确认活动或成果。") }
+            .alert("开始记录前台路线？", isPresented: $showRouteConsent) { Button("开始记录") { location.startRoute() }; Button("取消", role: .cancel) {} } message: { Text("仅在朝屿 前台打开时记录位置。后台和锁屏期间不会补画路线，也不会自动确认活动或成果。") }
             .confirmationDialog("删除这个地点记忆？", isPresented: Binding(get: { deletePlace != nil }, set: { if !$0 { deletePlace = nil } }), titleVisibility: .visible) { Button("删除", role: .destructive) { if let p = deletePlace { store.deletePlace(p) }; deletePlace = nil }; Button("取消", role: .cancel) {} }
             .sheet(isPresented: $adding) {
                 NavigationStack { Form { Section { TextField("这个地方叫什么？", text: $placeName); TextField("留下当时的心情或故事", text: $note, axis: .vertical).lineLimit(4...8) }; Section { Text("这是你手动留下的地点记忆，不代表自动检测到到访。") .font(.caption).foregroundStyle(.secondary) } }.navigationTitle("记住这里").navigationBarTitleDisplayMode(.inline).toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { adding = false } }; ToolbarItem(placement: .confirmationAction) { Button("保存") { if let c = center, store.addPlace(LifePlace(title: placeName.trimmingCharacters(in: .whitespacesAndNewlines), note: note, latitude: c.latitude, longitude: c.longitude)) { adding = false; placeName = ""; note = "" } }.disabled(placeName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) } } }

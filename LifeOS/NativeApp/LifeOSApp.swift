@@ -68,8 +68,9 @@ struct WelcomeView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
             Spacer()
-            Image(systemName: "sun.horizon.fill").font(.system(size: 68)).symbolRenderingMode(.hierarchical).foregroundStyle(.teal)
-            Text("LifeOS").font(.system(.largeTitle, design: .rounded, weight: .bold))
+            Image("BrandMark").resizable().scaledToFit().frame(width: 96, height: 96).clipShape(RoundedRectangle(cornerRadius: 23))
+            Text("朝屿").font(.system(.largeTitle, design: .rounded, weight: .bold))
+            Text("DAYISLE").font(.caption.weight(.semibold)).tracking(4).foregroundStyle(.secondary)
             Text("认真生活，\n慢慢留下自己的轨迹。")
                 .font(.largeTitle.bold()).fixedSize(horizontal: false, vertical: true)
             Text("给今天留一点方向，给时间留一点空间。\n计划、真实投入和生活记忆，在这里相遇。")
