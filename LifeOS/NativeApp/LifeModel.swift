@@ -74,6 +74,7 @@ struct RoutePoint: Codable, Equatable {
     var latitude: Double
     var longitude: Double
     var at = Date()
+    var segment = 0
 }
 
 struct LifeRoute: Codable, Identifiable, Equatable {

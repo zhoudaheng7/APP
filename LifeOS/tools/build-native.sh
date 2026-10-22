@@ -1,6 +1,8 @@
 #!/bin/bash
 set -euo pipefail
-export DEVELOPER_DIR=/Applications/Xcode_27.app/Contents/Developer
+if [ -d /Applications/Xcode_27.app/Contents/Developer ]; then
+  export DEVELOPER_DIR=/Applications/Xcode_27.app/Contents/Developer
+fi
 mkdir -p dist
 xcodebuild -version | tee dist/toolchain.txt
 python3 tools/make_native_icon.py

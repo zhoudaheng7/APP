@@ -88,14 +88,19 @@ func minutesText(_ seconds: TimeInterval) -> String {
     return minutes >= 60 ? "\(minutes / 60)小时\(minutes % 60)分" : "\(minutes)分钟"
 }
 
-func overlapsDay(_ start: Date, _ end: Date, day: Date) -> Bool {
-    let lower = Calendar.current.startOfDay(for: day)
-    let upper = Calendar.current.date(byAdding: .day, value: 1, to: lower)!
+func attributedDayBounds(_ day: Date, zone: TimeZone) -> (Date, Date) {
+    var calendar = Calendar(identifier: .gregorian); calendar.timeZone = zone
+    let parts = Calendar.current.dateComponents([.year, .month, .day], from: day)
+    let lower = calendar.date(from: parts)!
+    return (lower, calendar.date(byAdding: .day, value: 1, to: lower)!)
+}
+
+func overlapsDay(_ start: Date, _ end: Date, day: Date, zone: TimeZone = .current) -> Bool {
+    let (lower, upper) = attributedDayBounds(day, zone: zone)
     return start < upper && end > lower
 }
 
-func clippedSeconds(_ start: Date, _ end: Date, day: Date) -> TimeInterval {
-    let lower = Calendar.current.startOfDay(for: day)
-    let upper = Calendar.current.date(byAdding: .day, value: 1, to: lower)!
+func clippedSeconds(_ start: Date, _ end: Date, day: Date, zone: TimeZone = .current) -> TimeInterval {
+    let (lower, upper) = attributedDayBounds(day, zone: zone)
     return max(0, min(end, upper).timeIntervalSince(max(start, lower)))
 }

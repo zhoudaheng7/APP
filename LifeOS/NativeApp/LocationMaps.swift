@@ -12,6 +12,7 @@ import Observation
     private var foreground = true
     private var lastRecorded: CLLocation?
     private var wantsRoute = false
+    private var routeSegment = 0
     override init() { super.init(); manager.delegate = self; manager.desiredAccuracy = kCLLocationAccuracyBest; manager.distanceFilter = 10; authorization = manager.authorizationStatus }
     func locate() {
         if manager.authorizationStatus == .notDetermined { manager.requestWhenInUseAuthorization() }
@@ -25,10 +26,11 @@ import Observation
     }
     private func beginAuthorizedRoute() {
         guard wantsRoute, let store, store.runningRoute != nil || store.startRoute() else { return }
-        lastRecorded = nil; if foreground { manager.startUpdatingLocation() }
+        lastRecorded = nil; routeSegment += 1; if foreground { manager.startUpdatingLocation() }
     }
     func stopRoute() { wantsRoute = false; manager.stopUpdatingLocation(); store?.stopRoute(); lastRecorded = nil }
     func setForeground(_ active: Bool) {
+        if foreground != active { routeSegment += 1; lastRecorded = nil }
         foreground = active
         if active && wantsRoute && store?.runningRoute != nil { manager.startUpdatingLocation() } else { manager.stopUpdatingLocation() }
     }
@@ -48,7 +50,7 @@ import Observation
         guard foreground && wantsRoute && store?.runningRoute != nil else { return }
         if let lastRecorded, fix.distance(from: lastRecorded) < 10 || fix.timestamp.timeIntervalSince(lastRecorded.timestamp) < 5 { return }
         self.lastRecorded = fix
-        store?.appendRoutePoint(RoutePoint(latitude: fix.coordinate.latitude, longitude: fix.coordinate.longitude, at: fix.timestamp))
+        store?.appendRoutePoint(RoutePoint(latitude: fix.coordinate.latitude, longitude: fix.coordinate.longitude, at: fix.timestamp, segment: routeSegment))
     }
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) { self.error = "暂时无法取得位置，请在信号更好的地方重试。" }
 }
@@ -77,7 +79,9 @@ struct PlacesView: View {
                         }
                     }
                     if let route = store.runningRoute, route.points.count > 1 {
-                        MapPolyline(coordinates: route.points.map { CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude) }).stroke(.teal, lineWidth: 5)
+                        ForEach(Array(Set(route.points.map(\.segment))).sorted(), id: \.self) { segment in
+                            MapPolyline(coordinates: route.points.filter { $0.segment == segment }.map { CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude) }).stroke(.teal, lineWidth: 5)
+                        }
                     }
                 }
                 .mapStyle(.standard(elevation: .realistic))
@@ -149,7 +153,13 @@ struct RouteDetailView: View {
     var body: some View {
         if let route = store.data.routes.first(where: { $0.id == routeID }) {
             ScrollView { VStack(alignment: .leading, spacing: 18) {
-                Map { if route.points.count > 1 { MapPolyline(coordinates: route.points.map { CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude) }).stroke(.teal, lineWidth: 5) }; if let first = route.points.first { Marker("起点", coordinate: CLLocationCoordinate2D(latitude: first.latitude, longitude: first.longitude)).tint(.teal) }; if let last = route.points.last { Marker(route.end == nil ? "最近位置" : "终点", coordinate: CLLocationCoordinate2D(latitude: last.latitude, longitude: last.longitude)).tint(.orange) } }.frame(height: 400).clipShape(RoundedRectangle(cornerRadius: 24))
+                Map {
+                    ForEach(Array(Set(route.points.map(\.segment))).sorted(), id: \.self) { segment in
+                        MapPolyline(coordinates: route.points.filter { $0.segment == segment }.map { CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude) }).stroke(.teal, lineWidth: 5)
+                    }
+                    if let first = route.points.first { Marker("起点", coordinate: CLLocationCoordinate2D(latitude: first.latitude, longitude: first.longitude)).tint(.teal) }
+                    if let last = route.points.last { Marker(route.end == nil ? "最近位置" : "终点", coordinate: CLLocationCoordinate2D(latitude: last.latitude, longitude: last.longitude)).tint(.orange) }
+                }.frame(height: 400).clipShape(RoundedRectangle(cornerRadius: 24))
                 Text(route.title).font(.title2.bold()); Text(route.start.formatted(date: .complete, time: .shortened)).foregroundStyle(.secondary)
                 Text("\(route.points.count) 个前台采样点").font(.subheadline)
                 Text("采样只发生在你主动开启且 App 前台打开时；缺失片段不自动补成经过的路线。") .font(.caption).foregroundStyle(.secondary)

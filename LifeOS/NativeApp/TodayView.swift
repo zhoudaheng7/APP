@@ -6,8 +6,8 @@ struct TodayView: View {
     @State private var composer: ComposerKind?
     @State private var settings = false
     var openTasks: [LifeTask] { store.data.tasks.filter { $0.completedAt == nil } }
-    var sessions: [LifeSession] { store.data.sessions.filter { overlapsDay($0.start, $0.end ?? Date(), day: day) }.sorted { $0.start < $1.start } }
-    var plans: [LifePlan] { store.data.plans.filter { !$0.cancelled && overlapsDay($0.start, $0.end, day: day) }.sorted { $0.start < $1.start } }
+    var sessions: [LifeSession] { store.data.sessions.filter { overlapsDay($0.start, $0.end ?? Date(), day: day, zone: TimeZone(identifier: $0.timeZone) ?? .current) }.sorted { $0.start < $1.start } }
+    var plans: [LifePlan] { store.data.plans.filter { !$0.cancelled && overlapsDay($0.start, $0.end, day: day, zone: TimeZone(identifier: $0.timeZone) ?? .current) }.sorted { $0.start < $1.start } }
 
     var body: some View {
         List {
@@ -24,7 +24,7 @@ struct TodayView: View {
                     }
                     HStack(spacing: 24) {
                         metric("已完成", "\(store.data.tasks.filter { $0.completedAt.map { Calendar.current.isDate($0, inSameDayAs: day) } ?? false }.count)")
-                        metric("已确认投入", minutesText(sessions.filter(\.confirmed).reduce(0) { $0 + clippedSeconds($1.start, $1.end ?? Date(), day: day) }))
+                        metric("已确认投入", minutesText(sessions.filter(\.confirmed).reduce(0) { $0 + clippedSeconds($1.start, $1.end ?? Date(), day: day, zone: TimeZone(identifier: $1.timeZone) ?? .current) }))
                     }
                     HStack {
                         Button { shiftDay(-1) } label: { Image(systemName: "chevron.left") }.accessibilityLabel("前一天")
@@ -93,10 +93,10 @@ struct TodayView: View {
                 if sessions.isEmpty { Text("开始计时，留下真实投入。") .foregroundStyle(.secondary) }
                 ForEach(sessions) { session in
                     VStack(alignment: .leading, spacing: 7) {
-                        HStack { Text(session.title).font(.headline); Spacer(); Text(minutesText(clippedSeconds(session.start, session.end ?? Date(), day: day))).font(.subheadline.monospacedDigit()) }
+                        HStack { Text(session.title).font(.headline); Spacer(); Text(minutesText(clippedSeconds(session.start, session.end ?? Date(), day: day, zone: TimeZone(identifier: session.timeZone) ?? .current))).font(.subheadline.monospacedDigit()) }
                         HStack {
                             Label(session.confirmed ? "已核对" : session.end == nil ? "计时中" : "待核对", systemImage: session.confirmed ? "checkmark.seal" : "clock")
-                                .font(.caption).foregroundStyle(session.confirmed ? .teal : .secondary)
+                                .font(.caption).foregroundStyle(session.confirmed ? Color.teal : Color.secondary)
                             Spacer()
                             if session.end != nil && !session.confirmed { Button("确认实际投入") { store.confirmSession(session) }.font(.caption).buttonStyle(.borderless) }
                         }
@@ -131,7 +131,7 @@ struct PlansView: View {
     @Environment(LifeStore.self) private var store
     @State private var date = Date()
     @State private var add = false
-    var plans: [LifePlan] { store.data.plans.filter { !$0.cancelled && overlapsDay($0.start, $0.end, day: date) }.sorted { $0.start < $1.start } }
+    var plans: [LifePlan] { store.data.plans.filter { !$0.cancelled && overlapsDay($0.start, $0.end, day: date, zone: TimeZone(identifier: $0.timeZone) ?? .current) }.sorted { $0.start < $1.start } }
     var body: some View {
         List {
             Section { DatePicker("选择日期", selection: $date, displayedComponents: .date).datePickerStyle(.graphical) }
