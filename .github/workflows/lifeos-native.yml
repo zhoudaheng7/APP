@@ -1,0 +1,32 @@
+name: Build LifeOS iPhone
+on:
+  push:
+    branches: [codex/lifeos-native-v1]
+    paths: [LifeOS/**, .github/workflows/lifeos-native.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: lifeos-native-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  native-iphone:
+    runs-on: xcode-27
+    timeout-minutes: 35
+    defaults:
+      run:
+        shell: bash
+        working-directory: LifeOS
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Build and test native iPhone app
+        run: bash tools/build-native.sh
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: LifeOS-iPhone
+          path: |
+            LifeOS/dist/
+            !LifeOS/dist/Native.xcresult/**
+          if-no-files-found: warn
+          retention-days: 7
