@@ -21,11 +21,11 @@ targets:
     info:
       path: App/Info.plist
       properties:
-        CFBundleDisplayName: һ˦
-        NSLocalNetworkUsageDescription: ����ȷ�����Ӻ󣬷��ָ�����һ˦�豸��ֱ�Ӵ�����Ƭ��
+        CFBundleDisplayName: 一甩
+        NSLocalNetworkUsageDescription: 在你确认连接后，发现附近的一甩设备并直接传送照片。
         NSBonjourServices: ['_flick-photo._tcp', '_flick-photo._udp']
-        NSBluetoothAlwaysUsageDescription: �븽����ȷ�ϵ�һ˦�豸������ͼ���ӡ�
-        NSPhotoLibraryAddUsageDescription: ֻ������������ʱ���Ű��յ�����Ƭ���浽ϵͳ��ᡣ
+        NSBluetoothAlwaysUsageDescription: 与附近已确认的一甩设备建立传图连接。
+        NSPhotoLibraryAddUsageDescription: 只有在你点击保存时，才把收到的照片保存到系统相册。
         UILaunchScreen: {}
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
     settings:

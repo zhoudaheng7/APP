@@ -11,9 +11,9 @@ enum PhotoFailure: LocalizedError {
     case invalid, tooLarge, cannotSave
     var errorDescription: String? {
         switch self {
-        case .invalid: return "������Ƭ��ʱ�޷���ȡ���뻻һ�š�"
-        case .tooLarge: return "��һ��֧�� 80 MB ���ڵĵ�����Ƭ��"
-        case .cannotSave: return "����ϵͳ����������һ˦������Ƭ������ʹ�÷�����ť������"
+        case .invalid: return "这张照片暂时无法读取，请换一张。"
+        case .tooLarge: return "第一版支持 80 MB 以内的单张照片。"
+        case .cannotSave: return "请在系统设置中允许一甩添加照片，或先使用分享按钮导出。"
         }
     }
 }
@@ -81,7 +81,7 @@ struct PhotoAsset: Identifiable {
         let small = try PhotoFiles.thumbnail(source, maxPixels: 900)
         guard let preview = small.jpegData(compressionQuality: 0.72), preview.count <= FlickRules.maxPreviewBytes else { throw PhotoFailure.invalid }
         let id = UUID()
-        let asset = PhotoAsset(id: id, url: source, image: image, previewData: preview, sha256: try PhotoFiles.digest(source), byteCount: size, fileExtension: ext.lowercased(), title: "������һ��")
+        let asset = PhotoAsset(id: id, url: source, image: image, previewData: preview, sha256: try PhotoFiles.digest(source), byteCount: size, fileExtension: ext.lowercased(), title: "分享这一刻")
         guard asset.offer(side: .right).isValid else { throw PhotoFailure.invalid }
         return asset
     }

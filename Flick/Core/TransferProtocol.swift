@@ -3,8 +3,8 @@ import Foundation
 public enum ThrowSide: String, Codable, CaseIterable, Sendable {
     case left, right
     public var sign: Double { self == .right ? 1 : -1 }
-    public var label: String { self == .right ? "�Ҳ�" : "���" }
-    public var entryLabel: String { self == .right ? "���" : "�Ҳ�" }
+    public var label: String { self == .right ? "右侧" : "左侧" }
+    public var entryLabel: String { self == .right ? "左侧" : "右侧" }
 }
 
 public enum FlickRules {

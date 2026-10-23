@@ -3,7 +3,7 @@ import XCTest
 
 final class TransferTests: XCTestCase {
     func makeOffer(bytes: Int = 1234, ext: String = "heic", hash: String = String(repeating: "a", count: 64)) -> TransferOffer {
-        TransferOffer(id: UUID(), title: "��Ƭ", byteCount: bytes, sha256: hash, fileExtension: ext, side: .right)
+        TransferOffer(id: UUID(), title: "照片", byteCount: bytes, sha256: hash, fileExtension: ext, side: .right)
     }
     func testDirectionAndDistance() {
         XCTAssertTrue(FlickRules.shouldThrow(dx: 120, dy: 5, velocityX: 20, width: 320, side: .right))

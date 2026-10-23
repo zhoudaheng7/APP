@@ -14,19 +14,19 @@ struct FlickRootView: View {
     @State private var presentation: PhotoPresentation?
     var body: some View {
         TabView {
-            Tab("����", systemImage: "arrow.up.right") {
+            Tab("分享", systemImage: "arrow.up.right") {
                 NavigationStack {
                     SendScreen(link: link, photo: selected, side: side, pickerItem: $pickerItem, importing: importing, openConnection: { showConnection = true })
-                        .navigationTitle("һ˦")
+                        .navigationTitle("一甩")
                         .toolbar { connectionToolbar }
                 }
             }
-            Tab("����", systemImage: "square.and.arrow.down") {
+            Tab("接收", systemImage: "square.and.arrow.down") {
                 NavigationStack {
                     ReceiveHome(link: link, openConnection: { showConnection = true }, openPhoto: {
                         if let id = link.receivedPhoto?.id { presentation = PhotoPresentation(id: id) }
                     })
-                    .navigationTitle("��ס��һ��")
+                    .navigationTitle("接住这一刻")
                     .toolbar { connectionToolbar }
                 }
             }
@@ -38,7 +38,7 @@ struct FlickRootView: View {
         }
         .fullScreenCover(item: $presentation) { item in ReceivedPhotoView(link: link, photoID: item.id).id(item.id) }
         .alert(item: $link.invitation) { request in
-            Alert(title: Text("���Ӳ����������Զ�չʾ��"), message: Text("\(request.name) ���������ӡ���˶ԶԷ��ֻ���ʾ�������룺\(request.code)\n\n���Ӻ����ʱ��ͣ���ա�"), primaryButton: .default(Text("��������")) { link.answerInvitation(true) }, secondaryButton: .cancel(Text("�ܾ�")) { link.answerInvitation(false) })
+            Alert(title: Text("连接并允许本次自动展示？"), message: Text("\(request.name) 想与你连接。请核对对方手机显示的连接码：\(request.code)\n\n连接后可随时暂停接收。"), primaryButton: .default(Text("允许连接")) { link.answerInvitation(true) }, secondaryButton: .cancel(Text("拒绝")) { link.answerInvitation(false) })
         }
         .onChange(of: pickerItem) { _, item in
             guard let item = item else { return }
@@ -48,7 +48,7 @@ struct FlickRootView: View {
                 do {
                     guard let imported = try await item.loadTransferable(type: ImportedPhoto.self) else { throw PhotoFailure.invalid }
                     let asset = try await Task.detached(priority: .userInitiated) { try PhotoAsset.prepare(imported.url) }.value
-                    selected = asset; link.note("��Ƭ׼�����ˣ���\(side.label)˦�����ѡ�")
+                    selected = asset; link.note("照片准备好了，向\(side.label)甩给朋友。")
                     UISelectionFeedbackGenerator().selectionChanged()
                 } catch { link.note(error.localizedDescription, error: true) }
             }
@@ -64,10 +64,10 @@ struct FlickRootView: View {
     @ToolbarContentBuilder private var connectionToolbar: some ToolbarContent {
         ToolbarItem(placement: .topBarTrailing) {
             Button { showConnection = true } label: {
-                Label(link.peerName ?? (link.connecting ? "������" : "����"), systemImage: link.connected ? "link" : "antenna.radiowaves.left.and.right")
+                Label(link.peerName ?? (link.connecting ? "连接中" : "连接"), systemImage: link.connected ? "link" : "antenna.radiowaves.left.and.right")
                     .font(.subheadline)
             }
-            .accessibilityLabel(link.connected ? "������\(link.peerName ?? "�Է�")������" : "���Ӹ����� iPhone")
+            .accessibilityLabel(link.connected ? "管理与\(link.peerName ?? "对方")的连接" : "连接附近的 iPhone")
         }
     }
 }
@@ -88,28 +88,28 @@ private struct SendScreen: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     VStack(alignment: .leading, spacing: 6) {
-                        Text("����棬�����ոպ�").font(.subheadline).foregroundStyle(.secondary)
-                        Text(photo == nil ? "����һ�̣�˦�����ѡ�" : "����Ƭ�ɹ�ȥ��")
+                        Text("面对面，分享刚刚好").font(.subheadline).foregroundStyle(.secondary)
+                        Text(photo == nil ? "把这一刻，甩给朋友。" : "让照片飞过去。")
                             .font(.title2.weight(.semibold)).fixedSize(horizontal: false, vertical: true)
                     }
                     photoStage(width: max(geometry.size.width - 40, 100), height: max(260, min(geometry.size.height * 0.61, 520)))
                     VStack(spacing: 10) {
                         if link.isSending {
                             ProgressView(value: link.sendProgress).tint(.green)
-                                .accessibilityLabel("ԭͼ���ͽ���")
+                                .accessibilityLabel("原图发送进度")
                         }
                         Label(link.sendStatus, systemImage: link.sendError ? "exclamationmark.circle" : link.outgoingStage == .delivered ? "checkmark.circle.fill" : "arrow.left.and.right")
                             .font(.footnote).foregroundStyle(link.sendError ? Color.red : Color.secondary)
                             .frame(maxWidth: .infinity).fixedSize(horizontal: false, vertical: true)
                             .accessibilityAddTraits(.updatesFrequently)
                         if link.connected {
-                            Text(link.peerAccepting ? "�Է���\(side.label) �� ��ס��Ƭ��\(side.label)˦��" : "�Է�����ͣ���գ���Ƭ�Ա���")
+                            Text(link.peerAccepting ? "对方在\(side.label) · 按住照片向\(side.label)甩出" : "对方已暂停接收，照片仍保留")
                                 .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
                         }
                     }
                     if let photo = photo {
                         HStack {
-                            Label("ԭͼ", systemImage: "photo")
+                            Label("原图", systemImage: "photo")
                             Spacer()
                             Text(ByteCountFormatter.string(fromByteCount: Int64(photo.byteCount), countStyle: .file))
                         }.font(.caption).foregroundStyle(.secondary)
@@ -142,7 +142,7 @@ private struct SendScreen: View {
                 Image(uiImage: photo.image).resizable().scaledToFill()
                     .frame(width: width, height: height).clipped()
                     .overlay(alignment: .bottomLeading) {
-                        Text("������һ��").font(.headline).foregroundStyle(.white)
+                        Text("分享这一刻").font(.headline).foregroundStyle(.white)
                             .padding(20).frame(maxWidth: .infinity, alignment: .leading)
                             .background(LinearGradient(colors: [.clear, .black.opacity(0.45)], startPoint: .top, endPoint: .bottom))
                     }
@@ -161,18 +161,18 @@ private struct SendScreen: View {
                             if !link.isSending { withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { offset = .zero; lifted = false } }
                         })
                     .accessibilityElement(children: .ignore)
-                    .accessibilityLabel("ѡ�е���Ƭ����\(side.label)˦������")
-                    .accessibilityAction(named: Text("������Ƭ")) { performSend() }
+                    .accessibilityLabel("选中的照片，向\(side.label)甩出发送")
+                    .accessibilityAction(named: Text("发送照片")) { performSend() }
             } else {
                 VStack(spacing: 20) {
                     Image(systemName: "photo.on.rectangle.angled").font(.system(size: 54, weight: .ultraLight)).foregroundStyle(.secondary)
-                    Text("ѡһ�����������Ƭ").font(.headline)
+                    Text("选一张想分享的照片").font(.headline)
                     PhotosPicker(selection: $pickerItem, matching: .images, preferredItemEncoding: .current) {
-                        Label("ѡ����Ƭ", systemImage: "plus")
+                        Label("选择照片", systemImage: "plus")
                     }.buttonStyle(.glassProminent).controlSize(.large).disabled(importing)
                 }.padding(20)
             }
-            if importing { ProgressView("���ڶ�ȡ��Ƭ��").padding(20).glassEffect(in: .rect(cornerRadius: 20)) }
+            if importing { ProgressView("正在读取照片…").padding(20).glassEffect(in: .rect(cornerRadius: 20)) }
         }
         .frame(width: width, height: height)
         .clipped()
@@ -182,10 +182,10 @@ private struct SendScreen: View {
             HStack(spacing: 12) {
                 PhotosPicker(selection: $pickerItem, matching: .images, preferredItemEncoding: .current) {
                     Image(systemName: "photo.badge.plus").font(.title3).frame(minWidth: 44, minHeight: 44)
-                }.buttonStyle(.glass).buttonBorderShape(.circle).disabled(link.isSending || importing).accessibilityLabel("ѡ����һ����Ƭ")
+                }.buttonStyle(.glass).buttonBorderShape(.circle).disabled(link.isSending || importing).accessibilityLabel("选择另一张照片")
                 Button(action: performSend) {
                     HStack(spacing: 8) {
-                        Text(!link.connected ? "������һ̨ iPhone" : link.isSending ? "���ڷɹ�ȥ��" : "˦�� \(link.peerName ?? "����")")
+                        Text(!link.connected ? "连接另一台 iPhone" : link.isSending ? "正在飞过去…" : "甩给 \(link.peerName ?? "朋友")")
                         if !link.isSending { Image(systemName: side == .right ? "arrow.up.right" : "arrow.up.left") }
                     }.font(.headline).frame(maxWidth: .infinity).frame(minHeight: 44)
                 }
@@ -197,7 +197,7 @@ private struct SendScreen: View {
     private func performSend() {
         guard !link.isSending else { return }
         guard link.connected else { openConnection(); return }
-        guard let photo = photo else { link.note("��ѡ��һ����Ƭ��", error: true); return }
+        guard let photo = photo else { link.note("先选择一张照片。", error: true); return }
         link.send(photo, side: side)
     }
 }
@@ -215,23 +215,23 @@ private struct ReceiveHome: View {
                     Image(systemName: "square.and.arrow.down").font(.system(size: 48, weight: .ultraLight)).foregroundStyle(.secondary)
                 }.accessibilityHidden(true).padding(.top, 25)
                 VStack(spacing: 10) {
-                    Text(!link.connected ? "������������" : link.accepting ? "����˦��һ�š�" : "���ʱ���ٴ򿪡�")
+                    Text(!link.connected ? "等你连过来。" : link.accepting ? "等你甩来一张。" : "想接时，再打开。")
                         .font(.title2.weight(.semibold)).multilineTextAlignment(.center)
-                    Text(!link.connected ? "˫����һ˦�����Ӻ���ܷ�����" : link.accepting ? "�������������ѵ���Ƭ\n��Ӷ�Ӧ��Ե���벢�Զ�չ����" : "�����Զ�չʾ����ͣ��")
+                    Text(!link.connected ? "双方打开一甩，连接后就能分享。" : link.accepting ? "来自已连接朋友的照片\n会从对应边缘飞入并自动展开。" : "本次自动展示已暂停。")
                         .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
                 }
                 if !link.connected {
-                    Button("���Ӹ����� iPhone", systemImage: "link", action: openConnection).buttonStyle(.glassProminent).controlSize(.large)
+                    Button("连接附近的 iPhone", systemImage: "link", action: openConnection).buttonStyle(.glassProminent).controlSize(.large)
                 }
-                Toggle("�������������Զ�չʾ", isOn: Binding(get: { link.accepting }, set: link.setAccepting))
+                Toggle("本次连接允许自动展示", isOn: Binding(get: { link.accepting }, set: link.setAccepting))
                     .padding(18).background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: 20))
                 if let photo = link.receivedPhoto {
                     Button(action: openPhoto) {
                         HStack(spacing: 14) {
                             Image(uiImage: photo.image).resizable().scaledToFill().frame(width: 52, height: 64).clipped().clipShape(.rect(cornerRadius: 10))
                             VStack(alignment: .leading, spacing: 5) {
-                                Text("�ո��յ�����Ƭ").font(.headline)
-                                Text(photo.originalReady ? "ԭͼ�ѽ��� �� ���鿴" : photo.failure ?? "ԭͼ������")
+                                Text("刚刚收到的照片").font(.headline)
+                                Text(photo.originalReady ? "原图已接收 · 轻点查看" : photo.failure ?? "原图接收中")
                                     .font(.caption).foregroundStyle(.secondary)
                             }
                             Spacer(); Image(systemName: "chevron.right").foregroundStyle(.secondary)
@@ -251,22 +251,22 @@ private struct ConnectionSheet: View {
         NavigationStack {
             Form {
                 Section {
-                    LabeledContent("����", value: link.localName)
-                    LabeledContent("������") { Text(link.code).font(.title2.monospacedDigit().weight(.medium)).textSelection(.enabled) }
-                } footer: { Text("�ڶԷ��ֻ���ѡ�񱾻������˶������롣˫��ȷ�Ϻ����������Զ�չʾ������ʱ��ͣ��") }
+                    LabeledContent("本机", value: link.localName)
+                    LabeledContent("连接码") { Text(link.code).font(.title2.monospacedDigit().weight(.medium)).textSelection(.enabled) }
+                } footer: { Text("在对方手机上选择本机，并核对连接码。双方确认后允许本次自动展示，可随时暂停。") }
                 if link.connected {
-                    Section("��ǰ����") {
-                        Label(link.peerName ?? "���ѵ� iPhone", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
-                        Picker("�Է����ҵ�", selection: $side) {
-                            Text("���").tag(ThrowSide.left); Text("�Ҳ�").tag(ThrowSide.right)
+                    Section("当前连接") {
+                        Label(link.peerName ?? "朋友的 iPhone", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+                        Picker("对方在我的", selection: $side) {
+                            Text("左侧").tag(ThrowSide.left); Text("右侧").tag(ThrowSide.right)
                         }.disabled(link.isSending)
-                        Toggle("���������Զ�չʾ", isOn: Binding(get: { link.accepting }, set: link.setAccepting))
-                        Button("�Ͽ�����", role: .destructive) { link.disconnect(); dismiss() }
+                        Toggle("本次允许自动展示", isOn: Binding(get: { link.accepting }, set: link.setAccepting))
+                        Button("断开连接", role: .destructive) { link.disconnect(); dismiss() }
                     }
                 } else {
                     Section {
                         if link.nearby.isEmpty {
-                            HStack { ProgressView(); Text("Ѱ�Ҵ�һ˦���豸��").foregroundStyle(.secondary) }
+                            HStack { ProgressView(); Text("寻找打开一甩的设备…").foregroundStyle(.secondary) }
                         }
                         ForEach(link.nearby) { phone in
                             Button { link.connect(phone) } label: {
@@ -274,25 +274,25 @@ private struct ConnectionSheet: View {
                                     Image(systemName: "iphone.radiowaves.left.and.right")
                                     VStack(alignment: .leading, spacing: 4) {
                                         Text(phone.name)
-                                        Text("�Է������룺\(phone.code)").font(.caption).foregroundStyle(.secondary)
+                                        Text("对方连接码：\(phone.code)").font(.caption).foregroundStyle(.secondary)
                                     }
                                     Spacer()
                                     if link.connecting { ProgressView() } else { Image(systemName: "plus.circle") }
                                 }
                             }.disabled(link.connecting)
                         }
-                    } header: { Text("������ iPhone") } footer: { Text("�Ȱ���̨�ֻ�����ͬһ Wi-Fi���� Wi-Fi ����������������������Ȩ�ޡ���һ�潨�鲢���������ԡ�") }
+                    } header: { Text("附近的 iPhone") } footer: { Text("先把两台手机连接同一 Wi-Fi，打开 Wi-Fi 和蓝牙，并允许本地网络权限。第一版建议并排竖屏测试。") }
                     Section {
-                        Picker("�Է����ҵ�", selection: $side) {
-                            Text("���").tag(ThrowSide.left); Text("�Ҳ�").tag(ThrowSide.right)
+                        Picker("对方在我的", selection: $side) {
+                            Text("左侧").tag(ThrowSide.left); Text("右侧").tag(ThrowSide.right)
                         }
                     }
                 }
-                if let diagnostic = link.diagnostic { Section("������ʾ") { Text(diagnostic).font(.footnote).foregroundStyle(.secondary) } }
-                Section { Text("һ˦ 0.1.0 �� ԭ�� Liquid Glass\n��Ƭ������ȷ�ϵ��豸֮�䴫�͡�").font(.footnote).foregroundStyle(.secondary) }
+                if let diagnostic = link.diagnostic { Section("连接提示") { Text(diagnostic).font(.footnote).foregroundStyle(.secondary) } }
+                Section { Text("一甩 0.1.0 · 原生 Liquid Glass\n照片仅在已确认的设备之间传送。").font(.footnote).foregroundStyle(.secondary) }
             }
-            .navigationTitle("���������").navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("���") { dismiss() } } }
+            .navigationTitle("面对面连接").navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } }
         }
     }
 }
@@ -320,32 +320,32 @@ private struct ReceivedPhotoView: View {
                         .rotationEffect(.degrees(entered || reduceMotion ? 0 : -photo.offer.side.sign * 12))
                         .opacity(entered ? 1 : 0)
                         .onTapGesture { withAnimation(reduceMotion ? .linear(duration: 0.1) : .spring(response: 0.4, dampingFraction: 0.9)) { zoomed.toggle() } }
-                        .accessibilityLabel("����\(photo.sender)����Ƭ")
-                        .accessibilityAction(named: Text(zoomed ? "��ԭ��Ƭ" : "�Ŵ���Ƭ")) { zoomed.toggle() }
+                        .accessibilityLabel("来自\(photo.sender)的照片")
+                        .accessibilityAction(named: Text(zoomed ? "还原照片" : "放大照片")) { zoomed.toggle() }
                 }
             }.clipped()
         }
         .safeAreaInset(edge: .top) {
             HStack(alignment: .center) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("��ס��һ��").font(.headline)
-                    Text("���� \(photo?.sender ?? "����")").font(.caption).foregroundStyle(.secondary)
+                    Text("接住这一刻").font(.headline)
+                    Text("来自 \(photo?.sender ?? "朋友")").font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
                 Button { dismiss() } label: { Image(systemName: "xmark").frame(width: 44, height: 44) }
-                    .buttonStyle(.glass).buttonBorderShape(.circle).accessibilityLabel("������Ƭ����������")
+                    .buttonStyle(.glass).buttonBorderShape(.circle).accessibilityLabel("收起照片，继续接收")
             }.padding(.horizontal, 20).padding(.top, 10)
         }
         .safeAreaInset(edge: .bottom) {
             VStack(spacing: 14) {
                 if let failure = photo?.failure { Text(failure).font(.footnote).foregroundStyle(.orange).multilineTextAlignment(.center) }
-                else if photo?.originalReady == true { Label("ԭͼ�ѽ��ղ�У��", systemImage: "checkmark.circle.fill").font(.caption).foregroundStyle(.secondary) }
-                else { ProgressView(value: link.receiveProgress) { Text("ԭͼ�����С�").font(.caption) }.tint(.green) }
+                else if photo?.originalReady == true { Label("原图已接收并校验", systemImage: "checkmark.circle.fill").font(.caption).foregroundStyle(.secondary) }
+                else { ProgressView(value: link.receiveProgress) { Text("原图接收中…").font(.caption) }.tint(.green) }
                 GlassEffectContainer(spacing: 16) {
                     HStack(spacing: 14) {
-                        Button { share = true } label: { Label("����", systemImage: "square.and.arrow.up").frame(maxWidth: .infinity, minHeight: 40) }
+                        Button { share = true } label: { Label("分享", systemImage: "square.and.arrow.up").frame(maxWidth: .infinity, minHeight: 40) }
                             .buttonStyle(.glass).disabled(photo?.originalURL == nil)
-                        Button { savePhoto() } label: { Label(saving ? "�����С�" : "������Ƭ", systemImage: "square.and.arrow.down").frame(maxWidth: .infinity, minHeight: 40) }
+                        Button { savePhoto() } label: { Label(saving ? "保存中…" : "存入照片", systemImage: "square.and.arrow.down").frame(maxWidth: .infinity, minHeight: 40) }
                             .buttonStyle(.glassProminent).disabled(photo?.originalURL == nil || saving)
                     }
                 }
@@ -360,13 +360,13 @@ private struct ReceivedPhotoView: View {
             UIImpactFeedbackGenerator(style: .soft).impactOccurred()
         }
         .sheet(isPresented: $share) { if let url = photo?.originalURL { ActivitySheet(items: [url]) } }
-        .alert("������Ƭ", isPresented: Binding(get: { saveMessage != nil }, set: { if !$0 { saveMessage = nil } })) { Button("��", role: .cancel) {} } message: { Text(saveMessage ?? "") }
+        .alert("保存照片", isPresented: Binding(get: { saveMessage != nil }, set: { if !$0 { saveMessage = nil } })) { Button("好", role: .cancel) {} } message: { Text(saveMessage ?? "") }
     }
     private func savePhoto() {
         guard let url = photo?.originalURL, !saving else { return }
         saving = true
         Task { @MainActor in
-            do { try await PhotoSave.save(url); saveMessage = "�ѱ��浽ϵͳ��Ƭ��" }
+            do { try await PhotoSave.save(url); saveMessage = "已保存到系统照片。" }
             catch { saveMessage = error.localizedDescription }
             saving = false
         }
