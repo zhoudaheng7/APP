@@ -34,7 +34,10 @@ final class LocalIdentity {
         var values = UserDefaults.standard.dictionary(forKey: "flick.trusted.v2") ?? [:]
         values[id] = key.base64EncodedString(); UserDefaults.standard.set(values, forKey: "flick.trusted.v2")
     }
-    func forget() { UserDefaults.standard.removeObject(forKey: "flick.trusted.v2") }
+    func forget() {
+        UserDefaults.standard.removeObject(forKey: "flick.trusted.v2")
+        UserDefaults.standard.removeObject(forKey: "flick.friends.v3")
+    }
     var friends: [LocalFriend] {
         guard let data = UserDefaults.standard.data(forKey: "flick.friends.v3"), let value = try? JSONDecoder().decode([LocalFriend].self, from: data) else { return [] }
         return value

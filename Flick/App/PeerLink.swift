@@ -161,7 +161,7 @@ final class PeerLink: NSObject, ObservableObject {
         nearby = []
     }
     func connect(_ phone: NearbyPhone) {
-        guard running, !connected, !connecting, invitationReply == nil else { return }
+        guard running, discoverable, !blockedIDs.contains(phone.deviceID), !connected, !connecting, invitationReply == nil else { return }
         diagnostic = nil; expectedPeer = phone.peer; connecting = true; manuallyConfirmed = true; autoPendingID = nil; allowAutoInvite = true
         invite(phone)
     }
@@ -206,7 +206,7 @@ final class PeerLink: NSObject, ObservableObject {
         connectedPeer = nil; expectedPeer = nil; peerName = nil; peerAccepting = false; connecting = false; authenticated = false
         newSession(); sendStatus = reason
     }
-    func forgetDevices() { identity.forget(); disconnect(reason: "已忘记配对设备。下次连接需要重新确认。"); allowAutoInvite = true }
+    func forgetDevices() { identity.forget(); friends = identity.friends; disconnect(reason: "已忘记配对与本地好友。下次连接需要重新确认。"); allowAutoInvite = true }
     func retryDiscovery() {
         allowAutoInvite = true
         for phone in nearby { scheduleAutoConnect(phone) }
@@ -300,10 +300,10 @@ final class PeerLink: NSObject, ObservableObject {
         try? sendPacket(packet)
     }
     private func scheduleAutoConnect(_ phone: NearbyPhone) {
-        guard autoReconnect, allowAutoInvite, identity.trustedKey(for: phone.deviceID) != nil else { return }
+        guard autoReconnect, allowAutoInvite, discoverable, !blockedIDs.contains(phone.deviceID), identity.trustedKey(for: phone.deviceID) != nil else { return }
         let delay = identity.deviceID < phone.deviceID ? 0.4 : 1.8
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-            guard let self = self, self.running, self.autoReconnect, self.allowAutoInvite, self.connectedPeer == nil, !self.connecting, self.invitationReply == nil else { return }
+            guard let self = self, self.running, self.discoverable, !self.blockedIDs.contains(phone.deviceID), self.nearby.contains(where: { $0.peer == phone.peer }), self.autoReconnect, self.allowAutoInvite, self.connectedPeer == nil, !self.connecting, self.invitationReply == nil else { return }
             self.expectedPeer = phone.peer; self.connecting = true; self.manuallyConfirmed = false; self.autoPendingID = phone.deviceID
             self.invite(phone)
         }
@@ -430,7 +430,8 @@ final class PeerLink: NSObject, ObservableObject {
         incomingOffer = nil; incomingPreview = nil; incomingRequest = nil; consentAccepted = false; presentedIDs.remove(offer.id)
     }
     private func finishResource(_ url: URL, name: String, peer: MCPeerID, currentSession: MCSession) {
-        guard currentSession === session, peer == connectedPeer, let offer = incomingOffer, name == offer.resourceName else { try? FileManager.default.removeItem(at: url); return }
+        guard currentSession === session, peer == connectedPeer, let offer = incomingOffer, name == offer.resourceName,
+              presentedIDs.contains(offer.id), receivedPhoto?.id == offer.id else { try? FileManager.default.removeItem(at: url); return }
         let folder = PhotoFiles.directory.appendingPathComponent(offer.id.uuidString, isDirectory: true)
         let finalURL = folder.appendingPathComponent(offer.filename)
         do { try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true); try FileManager.default.moveItem(at: url, to: finalURL) }
@@ -535,7 +536,8 @@ extension PeerLink: MCSessionDelegate {
     }
     func session(_ session: MCSession, didStartReceivingResourceWithName resourceName: String, fromPeer peerID: MCPeerID, with progress: Progress) {
         DispatchQueue.main.async { [weak self] in
-            guard let self = self, session === self.session, peerID == self.connectedPeer, self.incomingOffer?.resourceName == resourceName, self.accepting else { progress.cancel(); return }
+            guard let self = self, session === self.session, peerID == self.connectedPeer, let offer = self.incomingOffer,
+                  offer.resourceName == resourceName, self.presentedIDs.contains(offer.id), self.receivedPhoto?.id == offer.id, self.accepting else { progress.cancel(); return }
             self.receiveResourceProgress = progress
             self.receiveObservation = progress.observe(\.fractionCompleted, options: [.initial, .new]) { [weak self] value, _ in
                 DispatchQueue.main.async { if self?.incomingOffer?.resourceName == resourceName { self?.receiveProgress = value.fractionCompleted } }
