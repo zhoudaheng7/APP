@@ -40,6 +40,17 @@ final class TransferTests: XCTestCase {
         XCTAssertFalse(transaction.received(id: offer.id))
         XCTAssertEqual(transaction.stage, .failed)
     }
+    func testStoredReceiptRequiresExactOriginalIdentityAndHash() {
+        let offer = makeOffer(); var transaction = SendTransaction(offer: offer)
+        XCTAssertFalse(transaction.storedReceipt(id: UUID(), sha256: offer.sha256))
+        XCTAssertFalse(transaction.storedReceipt(id: offer.id, sha256: String(repeating: "b", count: 64)))
+        XCTAssertEqual(transaction.stage, .awaitingPreview)
+        XCTAssertTrue(transaction.storedReceipt(id: offer.id, sha256: offer.sha256))
+        XCTAssertEqual(transaction.stage, .delivered)
+        XCTAssertFalse(transaction.storedReceipt(id: offer.id, sha256: offer.sha256))
+        var cancelled = SendTransaction(offer: offer); cancelled.fail()
+        XCTAssertFalse(cancelled.storedReceipt(id: offer.id, sha256: offer.sha256))
+    }
     func testPreviewIsNotOriginalDelivery() {
         let offer = makeOffer(); var transaction = SendTransaction(offer: offer)
         transaction.presented(id: offer.id)

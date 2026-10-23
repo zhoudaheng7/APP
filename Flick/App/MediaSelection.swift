@@ -36,7 +36,11 @@ struct SelectionItem: Identifiable {
     func removeFailed() { items.removeAll { $0.failure != nil } }
     func load(_ providers: [NSItemProvider]) {
         cancel(); token = PreparationToken()
-        let providers = Array(providers.prefix(50))
+        guard providers.count <= 50 else {
+            var item = SelectionItem(title: "一次最多选择 50 个项目")
+            item.failure = "请减少本次选择数量后重试。"
+            items = [item]; return
+        }
         items = providers.enumerated().map { SelectionItem(title: $0.element.suggestedName ?? "第 \($0.offset + 1) 个项目") }
         let currentToken = token; let ids = items.map(\.id); busy = !providers.isEmpty
         Task {

@@ -139,7 +139,6 @@ final class PeerLink: NSObject, ObservableObject {
     private var consentAccepted = false
     private var sentFriendRequest: UUID?
     private var friendTimeout: DispatchWorkItem?
-    var canPresentIncoming = false
     private var presentedIDs = Set<UUID>()
     private var recentIDs: [UUID] = []
     private var resourceProgress: Progress?
@@ -248,7 +247,9 @@ final class PeerLink: NSObject, ObservableObject {
         if let id = phone.bluetoothID, (bluetoothOnly || !nearby.contains(where: { $0.peer == phone.peer })) {
             guard !connected, !connecting else { return }
             manuallyConfirmed = true; autoPendingID = phone.deviceID.isEmpty ? nil : phone.deviceID; allowAutoInvite = true
-            connecting = true; bluetooth.connect(id); return
+            connecting = true
+            if !bluetooth.connect(id) { connecting = false; manuallyConfirmed = false; autoPendingID = nil }
+            return
         }
         guard running, discoverable, !blockedIDs.contains(phone.deviceID), !connected, !connecting, invitationReply == nil else { return }
         diagnostic = nil; expectedPeer = phone.peer; connecting = true; manuallyConfirmed = true; autoPendingID = nil; allowAutoInvite = true
@@ -313,6 +314,8 @@ final class PeerLink: NSObject, ObservableObject {
     }
     func forgetDevices() { identity.forget(); friends = identity.friends; disconnect(reason: "已忘记配对与本地好友。下次连接需要重新确认。"); allowAutoInvite = true }
     func retryDiscovery() {
+        guard discoverable else { note("请先开启附近设备发现。"); return }
+        bluetoothNearby = []; bluetooth.setDiscoverable(false); bluetooth.setDiscoverable(true)
         allowAutoInvite = true
         for phone in nearby { scheduleAutoConnect(phone) }
     }
@@ -370,6 +373,7 @@ final class PeerLink: NSObject, ObservableObject {
         guard let offer = incomingOffer, let preview = incomingPreview else { return }
         incomingRequest = nil
         receivedPhoto = ReceivedPhoto(id: offer.id, offer: offer, sender: peerName ?? "朋友", entrySide: bearing ?? offer.side.opposite, image: preview)
+        inbox.removeAll { $0.id == offer.id }
         inbox.insert(receivedPhoto!, at: 0)
         if inbox.count > 200 { inbox.removeLast() }
         incomingPreview = nil
@@ -557,8 +561,9 @@ final class PeerLink: NSObject, ObservableObject {
             transaction?.presented(id: id)
             if transaction?.offer.id == id, isSending { sendStatus = "对方已展开 · 原文件传输中" }
         case .received:
-            if let offer = transaction?.offer, packet.id == offer.id, packet.sha256 == offer.sha256 { _ = transaction?.ready(id: offer.id) }
-            guard let id = packet.id, transaction?.received(id: id) == true else { return }
+            guard let id = packet.id else { return }
+            let stored = packet.sha256.map { transaction?.storedReceipt(id: id, sha256: $0) == true } ?? false
+            guard stored || transaction?.received(id: id) == true else { return }
             timeout?.cancel(); progressObservation = nil; resourceProgress = nil
             isSending = false; sendProgress = 1; outgoingStage = .delivered; sendError = false
             if let asset = outboundPhoto { deliveredAssetIDs.insert(asset.id) }

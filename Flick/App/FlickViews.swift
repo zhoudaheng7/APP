@@ -79,16 +79,12 @@ struct FlickRootView: View {
             }
         }
         .onChange(of: link.connected) { _, value in if value { showConnection = false } }
-        .onChange(of: tab) { _, _ in updateReceivingSurface() }
-        .onChange(of: presentation?.id) { _, _ in updateReceivingSurface() }
-        .onChange(of: showConnection) { _, _ in updateReceivingSurface() }
         .onOpenURL { url in if url.scheme == "flick", url.host == "receive" { startReceiving() } }
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("FlickStartReceiving"))) { _ in startReceiving() }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in consumeShortcut() }
-        .onAppear { consumeShortcut(); updateReceivingSurface() }
+        .onAppear { consumeShortcut() }
     }
     private func consumeShortcut() { if UserDefaults.standard.bool(forKey: "flick.startReceiving") { startReceiving() } }
-    private func updateReceivingSurface() { link.canPresentIncoming = presentation == nil && !showConnection && !showPicker && !files }
     private func startReceiving() {
         UserDefaults.standard.set(false, forKey: "flick.startReceiving")
         tab = 1; link.setAccepting(true); link.activate(); link.retryDiscovery()
@@ -145,7 +141,7 @@ struct ComposerScreen: View {
                             ProgressView(value: item.progress) { Text(item.phase).font(.subheadline) }
                             Text(item.title).font(.caption).lineLimit(1).foregroundStyle(.secondary)
                         }
-                        ForEach(selection.items.filter { $0.failure != nil }) { item in
+                        ForEach(Array(selection.items.filter { $0.failure != nil }.prefix(3))) { item in
                             Text("\(item.title)：\(item.failure ?? "")").font(.caption).foregroundStyle(.red)
                         }
                         if !selection.busy { Button("移除读取失败的项目") { selection.removeFailed() }.buttonStyle(.glass) }
@@ -166,7 +162,7 @@ struct ComposerScreen: View {
                     }
                 }
                 SendScreen(link: link, photo: asset, side: side, importing: selection.busy, openConnection: { showConnection = true }, selectMedia: {}, allowsPicker: false,
-                           sendAction: { direction in link.sendBatch(selection.assets, side: direction) }, batchCount: selection.assets.count)
+                           sendAction: { direction in link.sendBatch(selection.assets, side: direction) }, batchCount: selection.assets.filter { !link.deliveredAssetIDs.contains($0.id) }.count)
             }
             .navigationTitle(selection.items.count > 1 ? "甩出 \(selection.items.count) 个项目" : "选中，即可甩出")
             .navigationBarTitleDisplayMode(.inline)
@@ -301,11 +297,12 @@ struct SendScreen: View {
                 }
                 Button { performSend() } label: {
                     HStack(spacing: 8) {
-                        Text(!link.connected ? "连接另一台 iPhone" : link.busySending ? "正在飞过去…" : batchCount > 1 ? "甩出 \(batchCount) 个项目" : "甩给 \(link.peerName ?? "朋友")")
+                        Text(!link.connected ? "连接另一台 iPhone" : link.busySending ? "正在飞过去…" : batchCount == 0 ? "本批已全部送达" : batchCount > 1 ? "甩出 \(batchCount) 个项目" : "甩给 \(link.peerName ?? "朋友")")
                         if !link.isSending { Image(systemName: (link.bearing ?? side).symbol) }
                     }.font(.headline).frame(maxWidth: .infinity).frame(minHeight: 44)
                 }.buttonStyle(.glassProminent).controlSize(.large)
-                    .disabled(importing || link.busySending || (link.connected && (photo == nil || !link.peerAccepting)))
+                    .disabled(importing || link.busySending || (link.connected && (photo == nil || !link.peerAccepting || batchCount == 0)))
+                if link.busySending { Button("停止") { link.cancelSending() }.buttonStyle(.glass) }
             }
         }
     }
@@ -352,7 +349,9 @@ private struct ReceiveHome: View {
                             }
                             Spacer(); Image(systemName: "chevron.right").foregroundStyle(.secondary)
                         }.padding(14).background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: 20))
-                    }.buttonStyle(.plain)
+                    }.buttonStyle(.plain).contextMenu {
+                        Button("删除已接收内容", role: .destructive) { link.removeReceived(photo.id) }.disabled(!photo.originalReady)
+                    }
                 }
             }.padding(22)
         }.background(Color(.systemGroupedBackground))

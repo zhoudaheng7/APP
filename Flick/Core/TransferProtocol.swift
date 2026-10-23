@@ -105,5 +105,9 @@ public struct SendTransaction: Sendable {
         guard id == offer.id, stage == .transferring else { return false }
         stage = .delivered; return true
     }
+    public mutating func storedReceipt(id: UUID, sha256: String) -> Bool {
+        guard id == offer.id, sha256 == offer.sha256, stage == .awaitingPreview else { return false }
+        stage = .delivered; return true
+    }
     public mutating func fail() { if stage != .delivered { stage = .failed } }
 }

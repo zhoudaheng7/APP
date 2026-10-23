@@ -63,12 +63,13 @@ final class BluetoothTransport: NSObject, CBCentralManagerDelegate, CBPeripheral
             } else if !wantsDiscovery { peripheral.stopAdvertising() }
         }
     }
-    func connect(_ id: UUID) {
-        guard !established, remote == nil, subscriber == nil, central?.state == .poweredOn, let device = known[id] else { return }
+    func connect(_ id: UUID) -> Bool {
+        guard !established, remote == nil, subscriber == nil, central?.state == .poweredOn, let device = known[id] else { status?("当前无法连接蓝牙，请打开蓝牙并重新寻找。"); return false }
         remote = device; device.delegate = self
         central.connect(device, options: [CBConnectPeripheralOptionNotifyOnDisconnectionKey: true])
         let job = DispatchWorkItem { [weak self] in guard let self = self, !self.established else { return }; self.disconnect("蓝牙连接超时，请让对方打开一甩后重试。") }
         deadline?.cancel(); deadline = job; DispatchQueue.main.asyncAfter(deadline: .now() + 25, execute: job)
+        return true
     }
     func installCipher(_ value: BluetoothCipher) { cipher = value }
     func send(_ data: Data, handshake: Bool = false) throws {
@@ -188,7 +189,7 @@ final class BluetoothTransport: NSObject, CBCentralManagerDelegate, CBPeripheral
         if error != nil { status?("无法开启蓝牙服务，请重试。"); return }; updateDiscovery()
     }
     func peripheralManager(_ peripheral: CBPeripheralManager, central: CBCentral, didSubscribeTo characteristic: CBCharacteristic) {
-        guard characteristic.uuid == Self.notifyID, remote == nil, subscriber == nil else { return }
+        guard wantsDiscovery, characteristic.uuid == Self.notifyID, remote == nil, subscriber == nil else { return }
         subscriber = central; begin("附近的蓝牙设备"); drain()
     }
     func peripheralManager(_ peripheral: CBPeripheralManager, central: CBCentral, didUnsubscribeFrom characteristic: CBCharacteristic) {

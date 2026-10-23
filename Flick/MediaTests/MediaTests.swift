@@ -17,7 +17,9 @@ import UniformTypeIdentifiers
         let buffer = try XCTUnwrap(pixel)
         CVPixelBufferLockBaseAddress(buffer, []); memset(CVPixelBufferGetBaseAddress(buffer), 90, CVPixelBufferGetDataSize(buffer)); CVPixelBufferUnlockBaseAddress(buffer, [])
         for frame in 0..<3 {
-            while !input.isReadyForMoreMediaData { try await Task.sleep(nanoseconds: 10_000_000) }
+            let deadline = Date().addingTimeInterval(10)
+            while !input.isReadyForMoreMediaData, writer.status == .writing, Date() < deadline { try await Task.sleep(nanoseconds: 10_000_000) }
+            guard input.isReadyForMoreMediaData else { throw writer.error ?? NSError(domain: "FixtureWriter", code: 1) }
             XCTAssertTrue(adaptor.append(buffer, withPresentationTime: CMTime(value: Int64(frame), timescale: 10)))
         }
         input.markAsFinished()
@@ -67,5 +69,10 @@ import UniformTypeIdentifiers
         try ReceiveInbox.commit(photo)
         let restored = try XCTUnwrap(ReceiveInbox.load().first { $0.id == offer.id })
         XCTAssertEqual(try Data(contentsOf: XCTUnwrap(restored.originalURL)), data)
+    }
+    func testOverLimitSelectionDoesNotSilentlyDropAttachments() {
+        let selection = MediaSelection(); selection.load((0..<51).map { _ in NSItemProvider() })
+        XCTAssertFalse(selection.busy); XCTAssertTrue(selection.assets.isEmpty)
+        XCTAssertNotNil(selection.items.first?.failure)
     }
 }
