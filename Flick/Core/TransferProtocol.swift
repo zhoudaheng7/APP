@@ -81,6 +81,7 @@ public struct WirePacket: Codable, Sendable {
     public var code: String?
     public var chunk: Data?
     public var offset: Int?
+    public var sha256: String?
     public init(_ kind: PacketKind, id: UUID? = nil, offer: TransferOffer? = nil, preview: Data? = nil, accepting: Bool? = nil, name: String? = nil, reason: String? = nil) {
         self.kind = kind; self.id = id; self.offer = offer; self.preview = preview
         self.accepting = accepting; self.name = name; self.reason = reason

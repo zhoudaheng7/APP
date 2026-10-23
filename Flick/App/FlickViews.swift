@@ -257,7 +257,7 @@ struct SendScreen: View {
         ZStack {
             RoundedRectangle(cornerRadius: 30).fill(Color(.secondarySystemGroupedBackground))
             if let photo = photo {
-                Image(uiImage: photo.image).resizable().scaledToFit()
+                SelectedMediaPreview(asset: photo)
                     .frame(width: width, height: height)
                     .overlay(alignment: .bottomLeading) {
                         Label("按住并甩向任一方向", systemImage: "hand.draw").font(.headline).foregroundStyle(.white)
@@ -435,6 +435,7 @@ private struct ReceivedPhotoView: View {
     @State private var quickLookURL: URL?
     @State private var player: AVPlayer?
     @State private var saveMessage: String?
+    @State private var originalImage: UIImage?
     private var photo: ReceivedPhoto? { link.receivedItem(photoID) }
     var body: some View {
         GeometryReader { geometry in
@@ -484,6 +485,11 @@ private struct ReceivedPhotoView: View {
             FlickFeedback.impact(.soft); preparePlayer()
         }
         .onChange(of: photo?.originalURL) { _, _ in preparePlayer() }
+        .task(id: photo?.originalURL) {
+            guard let photo = photo, photo.offer.kind == .photo, let url = photo.originalURL else { return }
+            let image = await Task.detached(priority: .userInitiated) { try? PhotoFiles.thumbnail(url) }.value
+            if !Task.isCancelled { originalImage = image }
+        }
         .onDisappear { player?.pause() }
         .sheet(isPresented: $share) { if let url = photo?.originalURL { ActivitySheet(items: [url]) } }
         .sheet(isPresented: $export) { if let url = photo?.originalURL { FileExportSheet(url: url) } }
@@ -500,7 +506,7 @@ private struct ReceivedPhotoView: View {
                     .buttonStyle(.glassProminent).disabled(photo.originalURL == nil)
             }.padding(30)
         } else {
-            Image(uiImage: photo.image).resizable().scaledToFit()
+            Image(uiImage: originalImage ?? photo.image).resizable().scaledToFit()
                 .onTapGesture { withAnimation(reduceMotion ? .linear(duration: 0.1) : .spring(response: 0.4, dampingFraction: 0.9)) { zoomed.toggle() } }
                 .accessibilityLabel("来自\(photo.sender)的内容").accessibilityAction(named: Text("放大或还原")) { zoomed.toggle() }
         }

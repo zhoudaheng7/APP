@@ -52,7 +52,7 @@ targets:
   FlickShare:
     type: app-extension
     platform: iOS
-    sources: [ShareExtension, Core, App/PeerLink.swift, App/BluetoothTransport.swift, App/MediaSelection.swift, App/ReceiveInbox.swift, App/PhotoAsset.swift, App/FlickViews.swift, App/SpatialLocator.swift, App/LocalIdentity.swift, App/SoundFeedback.swift, App/SettingsViews.swift, App/Resources]
+    sources: [ShareExtension, Core, App/PeerLink.swift, App/BluetoothTransport.swift, App/MediaSelection.swift, App/SelectedMediaPreview.swift, App/ReceiveInbox.swift, App/PhotoAsset.swift, App/FlickViews.swift, App/SpatialLocator.swift, App/LocalIdentity.swift, App/SoundFeedback.swift, App/SettingsViews.swift, App/Resources]
     info:
       path: ShareExtension/Info.plist
       properties:

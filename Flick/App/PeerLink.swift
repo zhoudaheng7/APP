@@ -11,7 +11,7 @@ struct NearbyPhone: Identifiable {
     let deviceID: String
     let fingerprint: String
     var bluetoothID: UUID? = nil
-    var id: String { peer.displayName }
+    var id: String { bluetoothID?.uuidString ?? peer.displayName }
 }
 struct ConnectionRequest: Identifiable {
     let id = UUID()
@@ -66,10 +66,10 @@ final class PeerLink: NSObject, ObservableObject {
     var allNearby: [NearbyPhone] {
         // The visible list comes from actual BLE discovery, never a distance estimate.
         bluetoothNearby.map { device in
-            if let phone = nearby.first(where: { $0.peer.displayName == device.name }) {
+            if let phone = nearby.first(where: { "YS-" + $0.code == device.name }) {
                 return NearbyPhone(peer: phone.peer, name: phone.name, code: phone.code, deviceID: phone.deviceID, fingerprint: phone.fingerprint, bluetoothID: device.id)
             }
-            return NearbyPhone(peer: MCPeerID(displayName: device.name), name: device.name, code: "连接后核对", deviceID: "", fingerprint: "", bluetoothID: device.id)
+            return NearbyPhone(peer: MCPeerID(displayName: "BLE-" + device.id.uuidString), name: device.name, code: "连接后核对", deviceID: "", fingerprint: "", bluetoothID: device.id)
         }
     }
     @Published private(set) var receiveProgress: Double = 0
@@ -209,7 +209,7 @@ final class PeerLink: NSObject, ObservableObject {
         session.delegate = self
     }
     func activate() {
-        bluetooth.start(name: peerID.displayName, discoverable: discoverable)
+        bluetooth.start(name: "YS-" + code, discoverable: discoverable)
         guard !running else { return }
         running = true; diagnostic = nil; allowAutoInvite = true
         advertiser = MCNearbyServiceAdvertiser(peer: peerID, discoveryInfo: ["name": localName, "code": code, "v": "4", "id": identity.deviceID, "key": identity.fingerprint], serviceType: service)
@@ -502,6 +502,10 @@ final class PeerLink: NSObject, ObservableObject {
             guard let offer = packet.offer, packet.id == offer.id, offer.isValid,
                   let data = packet.preview, data.count <= FlickRules.maxPreviewBytes,
                   let preview = UIImage(data: data) else { reject(packet.id, "文件格式或大小不受支持。"); return }
+            if let completed = inbox.first(where: { $0.id == offer.id && $0.originalReady }) {
+                guard completed.offer.sha256 == offer.sha256, completed.offer.byteCount == offer.byteCount else { reject(offer.id, "投送标识不匹配，请重新选择。"); return }
+                var receipt = WirePacket(.received, id: offer.id); receipt.sha256 = offer.sha256; try? sendPacket(receipt); return
+            }
             guard !recentIDs.contains(offer.id) else { reject(offer.id, "该次投送已处理，请重新发送。"); return }
             let trusted = connectedDeviceID.flatMap { identity.trustedKey(for: $0) } != nil
             let decision = ReceivePolicy.decide(enabled: accepting && (allowNearby || isCurrentFriend), trusted: trusted, automatic: autoAcceptTrusted, foreground: isForeground, bluetooth: usingBluetooth)
@@ -553,6 +557,7 @@ final class PeerLink: NSObject, ObservableObject {
             transaction?.presented(id: id)
             if transaction?.offer.id == id, isSending { sendStatus = "对方已展开 · 原文件传输中" }
         case .received:
+            if let offer = transaction?.offer, packet.id == offer.id, packet.sha256 == offer.sha256 { _ = transaction?.ready(id: offer.id) }
             guard let id = packet.id, transaction?.received(id: id) == true else { return }
             timeout?.cancel(); progressObservation = nil; resourceProgress = nil
             isSending = false; sendProgress = 1; outgoingStage = .delivered; sendError = false

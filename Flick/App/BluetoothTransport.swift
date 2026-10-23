@@ -83,9 +83,13 @@ final class BluetoothTransport: NSObject, CBCentralManagerDelegate, CBPeripheral
     func disconnect(_ reason: String = "蓝牙连接已断开，未完成的文件可以重试。") {
         let wasActive = established || remote != nil || subscriber != nil
         let oldRemote = remote
+        let hadSubscriber = subscriber != nil
         remote = nil; subscriber = nil; writer = nil; established = false; writePending = false
         outgoing = []; outgoingOffset = 0; cipher = nil; framer = BluetoothFramer(); deadline?.cancel()
         if let oldRemote = oldRemote { central?.cancelPeripheralConnection(oldRemote) }
+        if hadSubscriber, peripheral?.state == .poweredOn {
+            peripheral.stopAdvertising(); peripheral.removeAllServices(); notifier = nil; incomingWriter = nil; installService()
+        }
         if wasActive { closed?(reason) }
     }
     func stop() { wantsDiscovery = false; central?.stopScan(); peripheral?.stopAdvertising(); disconnect() }
@@ -157,6 +161,9 @@ final class BluetoothTransport: NSObject, CBCentralManagerDelegate, CBPeripheral
     func peripheral(_ device: CBPeripheral, didDiscoverServices error: Error?) {
         guard device === remote, error == nil, let service = device.services?.first(where: { $0.uuid == Self.serviceID }) else { disconnect("对方蓝牙服务不可用，请更新到同一版本。"); return }
         device.discoverCharacteristics([Self.writeID, Self.notifyID], for: service)
+    }
+    func peripheral(_ device: CBPeripheral, didModifyServices invalidatedServices: [CBService]) {
+        if device === remote, invalidatedServices.contains(where: { $0.uuid == Self.serviceID }) { disconnect("对方蓝牙服务已重启，请重新连接。") }
     }
     func peripheral(_ device: CBPeripheral, didDiscoverCharacteristicsFor service: CBService, error: Error?) {
         guard device === remote, error == nil, let write = service.characteristics?.first(where: { $0.uuid == Self.writeID }), let notify = service.characteristics?.first(where: { $0.uuid == Self.notifyID }) else { disconnect("蓝牙服务不完整。"); return }

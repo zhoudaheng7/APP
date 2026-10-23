@@ -108,8 +108,9 @@ struct PhotoAsset: Identifiable {
         let type = values.contentType ?? UTType(filenameExtension: source.pathExtension)
         let raw = CGImageSourceCreateWithURL(source as CFURL, nil)
         let kind: MediaKind = raw != nil ? .photo : type?.conforms(to: .movie) == true || ["mov", "mp4", "m4v"].contains(source.pathExtension.lowercased()) ? .video : .file
-        let image = try PhotoFiles.preview(source, kind: kind)
-        let scaled: UIImage = kind == .photo ? try PhotoFiles.thumbnail(source, maxPixels: 900) : image
+        // Keep batches within a share extension's small memory budget. Originals stay on disk.
+        let image = kind == .photo ? try PhotoFiles.thumbnail(source, maxPixels: 360) : PhotoFiles.placeholder(kind)
+        let scaled = image
         var preview = scaled.jpegData(compressionQuality: 0.65)
         if (preview?.count ?? Int.max) > FlickRules.maxPreviewBytes { preview = scaled.jpegData(compressionQuality: 0.25) }
         guard let preview = preview, preview.count <= FlickRules.maxPreviewBytes else { throw PhotoFailure.invalid }
@@ -122,7 +123,7 @@ struct PhotoAsset: Identifiable {
         return asset
     }
     func offer(side: ThrowSide) -> TransferOffer {
-        TransferOffer(id: UUID(), title: String(title.prefix(120)), byteCount: byteCount, sha256: sha256, fileExtension: fileExtension, side: side, kind: kind, filename: FlickRules.safeFilename(title))
+        TransferOffer(id: id, title: String(title.prefix(120)), byteCount: byteCount, sha256: sha256, fileExtension: fileExtension, side: side, kind: kind, filename: FlickRules.safeFilename(title))
     }
     var bluetoothPreview: Data {
         let renderer = UIGraphicsImageRenderer(size: CGSize(width: 180, height: 180))

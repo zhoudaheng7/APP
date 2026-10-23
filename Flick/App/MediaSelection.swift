@@ -27,7 +27,12 @@ struct SelectionItem: Identifiable {
     private var progressObserver: NSKeyValueObservation?
     var assets: [PhotoAsset] { items.compactMap(\.asset) }
     var canSend: Bool { !busy && !assets.isEmpty }
-    func cancel() { token.cancel(); providerProgress?.cancel(); progressObserver = nil; busy = false }
+    func cancel() {
+        token.cancel(); providerProgress?.cancel(); progressObserver = nil; busy = false
+        for index in items.indices where items[index].asset == nil && items[index].failure == nil {
+            items[index].failure = "读取已取消，已准备的项目仍可发送。"
+        }
+    }
     func removeFailed() { items.removeAll { $0.failure != nil } }
     func load(_ providers: [NSItemProvider]) {
         cancel(); token = PreparationToken()
@@ -53,7 +58,7 @@ struct SelectionItem: Identifiable {
                         items[position].asset = asset; items[position].title = asset.title; items[position].progress = 1; items[position].phase = "按住即可甩送"
                     }
                 } catch {
-                    if (try? currentToken.check()) == nil { break }
+                    if error is CancellationError { break }
                     if let position = items.firstIndex(where: { $0.id == ids[index] }) { items[position].failure = error.localizedDescription; items[position].phase = "读取失败，可移除后发送其余项目" }
                 }
             }
@@ -91,7 +96,12 @@ struct SelectionItem: Identifiable {
                     let access = source.startAccessingSecurityScopedResource()
                     defer { if access { source.stopAccessingSecurityScopedResource() } }
                     // Item-provider URLs expire at callback return; copy synchronously here.
-                    let copy = try PhotoFiles.copyImported(source, name: provider.suggestedName, token: token) { value in
+                    var name = provider.suggestedName ?? source.lastPathComponent
+                    if let type = type, UTType(type)?.conforms(to: .movie) == true,
+                       UTType(filenameExtension: URL(fileURLWithPath: name).pathExtension)?.conforms(to: .movie) != true {
+                        name = URL(fileURLWithPath: name).deletingPathExtension().lastPathComponent + "." + (UTType(type)?.preferredFilenameExtension ?? "mov")
+                    }
+                    let copy = try PhotoFiles.copyImported(source, name: name, token: token) { value in
                         Task { @MainActor in self?.update(id, progress: value * 0.5, phase: "从相册读取原文件…") }
                     }
                     continuation.resume(returning: copy)
@@ -100,7 +110,8 @@ struct SelectionItem: Identifiable {
             if let type = type {
                 providerProgress = provider.loadFileRepresentation(forTypeIdentifier: type) { url, error in finish(url, error) }
             } else if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
-                providerProgress = provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { value, error in finish(value as? URL, error) }
+                providerProgress = nil
+                provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { value, error in finish(value as? URL, error) }
             } else { continuation.resume(throwing: PhotoFailure.invalid); return }
             progressObserver = providerProgress?.observe(\.fractionCompleted, options: [.new]) { [weak self] value, _ in
                 Task { @MainActor in self?.update(id, progress: min(0.49, value.fractionCompleted * 0.49), phase: "正在读取，可随时取消…") }
