@@ -28,7 +28,6 @@ targets:
         NSPhotoLibraryAddUsageDescription: ֻ������������ʱ���Ű��յ�����Ƭ���浽ϵͳ��ᡣ
         UILaunchScreen: {}
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
-        UIRequiresFullScreen: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.zhoudaheng7.Flick

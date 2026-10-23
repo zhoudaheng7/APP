@@ -264,7 +264,7 @@ private struct ConnectionSheet: View {
                         Button("�Ͽ�����", role: .destructive) { link.disconnect(); dismiss() }
                     }
                 } else {
-                    Section("������ iPhone") {
+                    Section {
                         if link.nearby.isEmpty {
                             HStack { ProgressView(); Text("Ѱ�Ҵ�һ˦���豸��").foregroundStyle(.secondary) }
                         }
@@ -281,7 +281,7 @@ private struct ConnectionSheet: View {
                                 }
                             }.disabled(link.connecting)
                         }
-                    } footer: { Text("�Ȱ���̨�ֻ�����ͬһ Wi-Fi���� Wi-Fi ����������������������Ȩ�ޡ���һ�潨�鲢���������ԡ�") }
+                    } header: { Text("������ iPhone") } footer: { Text("�Ȱ���̨�ֻ�����ͬһ Wi-Fi���� Wi-Fi ����������������������Ȩ�ޡ���һ�潨�鲢���������ԡ�") }
                     Section {
                         Picker("�Է����ҵ�", selection: $side) {
                             Text("���").tag(ThrowSide.left); Text("�Ҳ�").tag(ThrowSide.right)

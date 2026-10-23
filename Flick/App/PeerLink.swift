@@ -267,7 +267,10 @@ extension PeerLink: MCNearbyServiceBrowserDelegate {
         }
     }
     func browser(_ browser: MCNearbyServiceBrowser, lostPeer peerID: MCPeerID) {
-        DispatchQueue.main.async { [weak self] in self?.nearby.removeAll { $0.peer == peerID } }
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self, browser === self.browser else { return }
+            self.nearby.removeAll { $0.peer == peerID }
+        }
     }
     func browser(_ browser: MCNearbyServiceBrowser, didNotStartBrowsingForPeers error: Error) {
         DispatchQueue.main.async { [weak self] in self?.diagnostic = "�޷����ָ����豸����������������һ˦ʹ�ñ������磬���� Wi-Fi ��������\n\(error.localizedDescription)" }
