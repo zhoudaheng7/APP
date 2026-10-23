@@ -394,7 +394,7 @@ struct ConnectionSheet: View {
                     Button("忘记所有配对", role: .destructive) { link.forgetDevices() }
                 } footer: { Text("真实方位需要超宽带权限和合适的手机朝向。测不到时不会显示虚假的方向，可手动向四边甩送给当前连接的设备。") }
                 if let diagnostic = link.diagnostic { Section("连接提示") { Text(diagnostic).font(.footnote).foregroundStyle(.secondary) } }
-                Section { NavigationLink("甩送音效", systemImage: "speaker.wave.2") { SoundSettingsView() } }
+                Section { NavigationLink { SoundSettingsView() } label: { Label("甩送音效", systemImage: "speaker.wave.2") } }
                 Section { Text("一甩 0.3.0 · 原生 Liquid Glass\n原文件传输与 SHA-256 校验 · 单次一个，最大 2 GiB").font(.footnote).foregroundStyle(.secondary) }
             }
             .navigationTitle("面对面连接").navigationBarTitleDisplayMode(.inline)
