@@ -1,0 +1,42 @@
+name: Flick
+options:
+  bundleIdPrefix: com.zhoudaheng7
+  deploymentTarget:
+    iOS: '26.0'
+settings:
+  base:
+    SWIFT_VERSION: '5.0'
+    SWIFT_STRICT_CONCURRENCY: minimal
+    TARGETED_DEVICE_FAMILY: '1'
+    MARKETING_VERSION: '0.1.0'
+    CURRENT_PROJECT_VERSION: '1'
+    CODE_SIGNING_ALLOWED: NO
+    GENERATE_INFOPLIST_FILE: NO
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+targets:
+  Flick:
+    type: application
+    platform: iOS
+    sources: [App, Core]
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: һ˦
+        NSLocalNetworkUsageDescription: ����ȷ�����Ӻ󣬷��ָ�����һ˦�豸��ֱ�Ӵ�����Ƭ��
+        NSBonjourServices: ['_flick-photo._tcp', '_flick-photo._udp']
+        NSBluetoothAlwaysUsageDescription: �븽����ȷ�ϵ�һ˦�豸������ͼ���ӡ�
+        NSPhotoLibraryAddUsageDescription: ֻ������������ʱ���Ű��յ�����Ƭ���浽ϵͳ��ᡣ
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        UIRequiresFullScreen: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.zhoudaheng7.Flick
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        SUPPORTS_MACCATALYST: NO
+        SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD: NO
+schemes:
+  Flick:
+    build:
+      targets:
+        Flick: all

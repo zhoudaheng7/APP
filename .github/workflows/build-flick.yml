@@ -1,0 +1,49 @@
+name: Build Flick Liquid Glass IPA
+on:
+  workflow_dispatch:
+  push:
+    branches: ['codex/flick-ipa']
+    paths: ['Flick/**', '.github/workflows/build-flick.yml']
+permissions:
+  contents: read
+concurrency:
+  group: flick-build-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  iphone:
+    runs-on: macos-26
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: Flick
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect native toolchain
+        run: |
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+      - name: Install Xcode project generator
+        run: brew install xcodegen
+      - name: Verify transfer rules and acknowledgements
+        run: |
+          set -o pipefail
+          mkdir -p output
+          swift test | tee output/core-tests.log
+      - name: Generate native project
+        run: xcodegen generate
+      - name: Build actual iPhone application
+        run: |
+          set -o pipefail
+          xcodebuild build -project Flick.xcodeproj -scheme Flick \
+            -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' \
+            -derivedDataPath build/device CODE_SIGNING_ALLOWED=NO | tee output/device-build.log
+      - name: Package unsigned IPA for the user's phone certificates
+        run: python3 scripts/package_ipa.py build/device/Build/Products/Release-iphoneos/Flick.app output/Flick-0.1.0-unsigned.ipa
+      - name: Upload device IPA and verification
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Flick-iPhone-LiquidGlass
+          path: Flick/output/
+          if-no-files-found: error
+          retention-days: 14
