@@ -2,13 +2,10 @@ import Foundation
 
 public enum ReceiveDecision: Equatable { case reject, ask, open }
 public enum ReceivePolicy {
-    public static func decide(enabled: Bool, isFriend: Bool, autoFriends: Bool, surfaceReady: Bool) -> ReceiveDecision {
-        guard enabled, surfaceReady else { return .reject }
-        return isFriend && autoFriends ? .open : .ask
-    }
-    public static func isWithinTwentyMeters(_ distance: Float?, fresh: Bool) -> Bool {
-        guard fresh, let distance = distance, distance.isFinite, distance >= 0 else { return false }
-        return distance <= 20
+    public static func decide(enabled: Bool, trusted: Bool, automatic: Bool, foreground: Bool, bluetooth: Bool) -> ReceiveDecision {
+        guard enabled, foreground || bluetooth else { return .reject }
+        if trusted && automatic { return .open }
+        return foreground ? .ask : .reject
     }
 }
 public enum SoundPack: String, CaseIterable, Codable, Identifiable {

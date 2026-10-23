@@ -15,9 +15,16 @@ struct FlickSettingsView: View {
             Section("附近与接收") {
                 Toggle("允许附近设备发现我", isOn: $link.discoverable)
                 Toggle("接收附近的人发来的内容", isOn: $link.allowNearby)
-                Toggle("允许好友自动展开", isOn: $link.autoAcceptFriends)
+                Toggle("信任后连续接收", isOn: $link.autoAcceptTrusted)
+                Toggle("纯蓝牙传输（可关闭 Wi-Fi）", isOn: $link.bluetoothOnly).disabled(link.busySending)
                 Toggle("已确认设备自动重连", isOn: $link.autoReconnect)
-                Text("陌生人每次需要确认，且需测得在 20 米内。距离未知时不当作 20 米内；可核对设备身份后双方添加好友。接收时请保持接收页在前台。").font(.footnote).foregroundStyle(.secondary)
+                Text("首次连接核对身份并信任，之后可连续接收。附近设备通过蓝牙发现，不判断距离。在 App 任意页面均可接收。后台接收需提前建立纯蓝牙连接，受 iOS 调度限制；强制退出后不可接收。").font(.footnote).foregroundStyle(.secondary)
+            }
+            Section("已信任设备") {
+                ForEach(link.trustedDevices) { device in
+                    HStack { Text(device.name); Spacer(); Button("撤销信任", role: .destructive) { link.revokeTrust(device.id) } }
+                }
+                if link.trustedDevices.isEmpty { Text("首次连接并确认后会显示在这里。").foregroundStyle(.secondary) }
             }
             if !link.blockedIDs.isEmpty {
                 Section("已屏蔽设备") {
@@ -29,12 +36,13 @@ struct FlickSettingsView: View {
             Section("本版功能状态") {
                 LabeledContent("iPhone 之间原文件传输", value: "可测试")
                 LabeledContent("好友申请与本地好友", value: "可测试")
-                LabeledContent("远程、聊天与后台推送", value: "未接入服务")
+                LabeledContent("纯蓝牙与后台接收", value: "待双机实测")
+                LabeledContent("远程、聊天与推送", value: "未接入服务")
                 LabeledContent("Android / HarmonyOS", value: "客户端未完成")
                 Text("模拟版中的远程与跨系统流程尚未接入真实服务。本版不会为未发生的传输显示成功，也不使用后台音频保活。").font(.footnote).foregroundStyle(.secondary)
             }
             Section {
-                Text("一甩 0.3.0 · 原生 Liquid Glass\n单次一个原文件，最大 2 GiB；双方安装相同版本。分享扩展有独立的配对、音效和好友设置。").font(.footnote).foregroundStyle(.secondary)
+                Text("一甩 0.4 开发版 · 原生 Liquid Glass\n多选最多 50 个，每个原文件最大 2 GiB；双方安装相同版本。分享扩展有独立的配对、音效和好友设置。").font(.footnote).foregroundStyle(.secondary)
             }
         }.navigationTitle("设置")
     }

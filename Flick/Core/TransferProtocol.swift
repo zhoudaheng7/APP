@@ -62,9 +62,9 @@ public struct TransferOffer: Codable, Equatable, Sendable {
     }
 }
 
-public enum PacketKind: String, Codable, Sendable { case hello, proof, offer, ready, presented, received, cancel, reject, friendRequest, friendReply, friendRemoved }
+public enum PacketKind: String, Codable, Sendable { case hello, proof, offer, ready, presented, received, cancel, reject, friendRequest, friendReply, friendRemoved, chunk, chunkAck, fileEnd }
 public struct WirePacket: Codable, Sendable {
-    public var version: Int = 3
+    public var version: Int = 4
     public var kind: PacketKind
     public var id: UUID?
     public var offer: TransferOffer?
@@ -77,6 +77,10 @@ public struct WirePacket: Codable, Sendable {
     public var nonce: String?
     public var signature: Data?
     public var nearbyToken: Data?
+    public var exchangeKey: Data?
+    public var code: String?
+    public var chunk: Data?
+    public var offset: Int?
     public init(_ kind: PacketKind, id: UUID? = nil, offer: TransferOffer? = nil, preview: Data? = nil, accepting: Bool? = nil, name: String? = nil, reason: String? = nil) {
         self.kind = kind; self.id = id; self.offer = offer; self.preview = preview
         self.accepting = accepting; self.name = name; self.reason = reason

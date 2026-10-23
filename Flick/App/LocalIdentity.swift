@@ -30,9 +30,21 @@ final class LocalIdentity {
         guard let text = UserDefaults.standard.dictionary(forKey: "flick.trusted.v2")?[id] as? String else { return nil }
         return Data(base64Encoded: text)
     }
-    func remember(id: String, key: Data) {
+    func remember(id: String, key: Data, name: String) {
         var values = UserDefaults.standard.dictionary(forKey: "flick.trusted.v2") ?? [:]
         values[id] = key.base64EncodedString(); UserDefaults.standard.set(values, forKey: "flick.trusted.v2")
+        var names = UserDefaults.standard.dictionary(forKey: "flick.trustedNames.v4") ?? [:]
+        names[id] = name; UserDefaults.standard.set(names, forKey: "flick.trustedNames.v4")
+    }
+    var trustedDevices: [LocalFriend] {
+        let keys = UserDefaults.standard.dictionary(forKey: "flick.trusted.v2") ?? [:]
+        let names = UserDefaults.standard.dictionary(forKey: "flick.trustedNames.v4") ?? [:]
+        return keys.keys.sorted().map { LocalFriend(id: $0, name: names[$0] as? String ?? "iPhone · " + String($0.suffix(4))) }
+    }
+    func revoke(_ id: String) {
+        var values = UserDefaults.standard.dictionary(forKey: "flick.trusted.v2") ?? [:]
+        values.removeValue(forKey: id); UserDefaults.standard.set(values, forKey: "flick.trusted.v2")
+        removeFriend(id: id)
     }
     func forget() {
         UserDefaults.standard.removeObject(forKey: "flick.trusted.v2")

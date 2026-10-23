@@ -11,7 +11,7 @@ struct FlickApp: App {
                 .task { link.activate() }
                 .onChange(of: scenePhase) { _, phase in
                     if phase == .active { link.activate() }
-                    else if phase == .background { link.suspend() }
+                    else if phase == .background { link.background() }
                 }
         }
     }

@@ -12,9 +12,8 @@ struct FlickRootView: View {
     @ObservedObject var link: PeerLink
     @AppStorage("flick.throwSide") private var side: ThrowSide = .right
     @State private var tab = 0
-    @State private var pickerItem: PhotosPickerItem?
-    @State private var selected: PhotoAsset?
-    @State private var importing = false
+    @StateObject private var selection = MediaSelection()
+    @State private var showPicker = false
     @State private var files = false
     @State private var showConnection = false
     @State private var presentation: PhotoPresentation?
@@ -22,10 +21,10 @@ struct FlickRootView: View {
         TabView(selection: $tab) {
             Tab("分享", systemImage: "arrow.up.right", value: 0) {
                 NavigationStack {
-                    SendScreen(link: link, photo: nil, side: side, pickerItem: $pickerItem, importing: importing, openConnection: { showConnection = true })
+                    SendScreen(link: link, photo: nil, side: side, importing: false, openConnection: { showConnection = true }, selectMedia: { showPicker = true })
                         .navigationTitle("一甩")
                         .toolbar {
-                            ToolbarItem(placement: .topBarLeading) { Button("选文件", systemImage: "doc.badge.plus") { files = true }.disabled(importing || link.isSending) }
+                            ToolbarItem(placement: .topBarLeading) { Button("选文件", systemImage: "doc.badge.plus") { files = true }.disabled(link.busySending) }
                             connectionToolbar
                         }
                 }
@@ -52,42 +51,29 @@ struct FlickRootView: View {
             IncomingRequestView(link: link, request: request).presentationDetents([.medium, .large])
         }
         .fullScreenCover(item: $presentation) { item in
-            if item.composing, let asset = selected {
-                ComposerScreen(link: link, initialAsset: asset, initialSide: side)
+            if item.composing {
+                ComposerScreen(link: link, selection: selection, initialSide: side)
             } else { ReceivedPhotoView(link: link, photoID: item.id).id(item.id) }
         }
-        .fileImporter(isPresented: $files, allowedContentTypes: [.item]) { result in
+        .sheet(isPresented: $showPicker) {
+            OriginalMediaPicker { providers in
+                showPicker = false
+                guard !providers.isEmpty else { return }
+                selection.load(providers)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { presentation = PhotoPresentation(id: UUID(), composing: true) }
+            }.ignoresSafeArea()
+        }
+        .fileImporter(isPresented: $files, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
             switch result {
-            case .success(let url):
-                importing = true
-                Task { @MainActor in
-                    defer { importing = false }
-                    do {
-                        let asset = try await Task.detached(priority: .userInitiated) {
-                            let access = url.startAccessingSecurityScopedResource()
-                            defer { if access { url.stopAccessingSecurityScopedResource() } }
-                            return try PhotoAsset.prepare(PhotoFiles.copyImported(url))
-                        }.value
-                        compose(asset)
-                    } catch { link.note(error.localizedDescription, error: true) }
-                }
+            case .success(let urls):
+                guard !urls.isEmpty else { return }
+                selection.loadFiles(urls); presentation = PhotoPresentation(id: UUID(), composing: true)
             case .failure(let error): link.note(error.localizedDescription, error: true)
             }
         }
-        .modifier(LinkDialogs(link: link, enabled: !showConnection && presentation == nil))
-        .onChange(of: pickerItem) { _, item in
-            guard let item = item else { return }; importing = true
-            Task { @MainActor in
-                defer { importing = false; pickerItem = nil }
-                do {
-                    guard let imported = try await item.loadTransferable(type: ImportedPhoto.self) else { throw PhotoFailure.invalid }
-                    let asset = try await Task.detached(priority: .userInitiated) { try PhotoAsset.prepare(imported.url) }.value
-                    compose(asset)
-                } catch { link.note(error.localizedDescription, error: true) }
-            }
-        }
+        .modifier(LinkDialogs(link: link, enabled: !showConnection && presentation == nil && !showPicker && !files))
         .onChange(of: link.receivedPhoto?.id) { _, id in
-            if let id = id {
+            if let id = id, presentation == nil, !showConnection, !showPicker, !files, UIApplication.shared.applicationState == .active {
                 var transaction = Transaction(); transaction.disablesAnimations = true
                 withTransaction(transaction) { presentation = PhotoPresentation(id: id) }
             }
@@ -101,13 +87,8 @@ struct FlickRootView: View {
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in consumeShortcut() }
         .onAppear { consumeShortcut(); updateReceivingSurface() }
     }
-    private func compose(_ asset: PhotoAsset) {
-        selected = asset; presentation = PhotoPresentation(id: asset.id, composing: true)
-        link.note("准备好了，上下左右都可以甩出。")
-        FlickFeedback.selection()
-    }
     private func consumeShortcut() { if UserDefaults.standard.bool(forKey: "flick.startReceiving") { startReceiving() } }
-    private func updateReceivingSurface() { link.canPresentIncoming = tab == 1 && presentation == nil && !showConnection }
+    private func updateReceivingSurface() { link.canPresentIncoming = presentation == nil && !showConnection && !showPicker && !files }
     private func startReceiving() {
         UserDefaults.standard.set(false, forKey: "flick.startReceiving")
         tab = 1; link.setAccepting(true); link.activate(); link.retryDiscovery()
@@ -123,7 +104,7 @@ struct FlickRootView: View {
 #endif
 
 private func connectionAlert(_ request: ConnectionRequest, link: PeerLink) -> Alert {
-    Alert(title: Text("连接此设备？"), message: Text("\(request.name) 想与你连接。请核对对方连接码：\(request.code)\n\n每次接收先询问；好友可在设置中允许自动展开。可随时暂停接收或忘记配对。"), primaryButton: .default(Text("允许连接")) { link.answerInvitation(true) }, secondaryButton: .cancel(Text("拒绝")) { link.answerInvitation(false) })
+    Alert(title: Text("连接此设备？"), message: Text("\(request.name) 想与你连接。请核对对方连接码：\(request.code)\n\n确认后信任此设备，后续内容可连续接收。可随时暂停接收或在设置中撤销信任。"), primaryButton: .default(Text("信任并连接")) { link.answerInvitation(true) }, secondaryButton: .cancel(Text("拒绝")) { link.answerInvitation(false) })
 }
 
 private enum LinkDialog: Identifiable {
@@ -147,28 +128,58 @@ private struct LinkDialogs: ViewModifier {
 
 struct ComposerScreen: View {
     @ObservedObject var link: PeerLink
-    let initialAsset: PhotoAsset
+    @ObservedObject var selection: MediaSelection
     let initialSide: ThrowSide
     var finish: (() -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
     @State private var showConnection = false
-    @State private var picker: PhotosPickerItem?
     @State private var side: ThrowSide = .right
+    @State private var focused = 0
+    private var asset: PhotoAsset? { selection.assets.isEmpty ? nil : selection.assets[min(focused, selection.assets.count - 1)] }
     var body: some View {
         NavigationStack {
-            SendScreen(link: link, photo: initialAsset, side: side, pickerItem: $picker, importing: false, openConnection: { showConnection = true }, allowsPicker: false)
-                .navigationTitle(initialAsset.kind == .video ? "甩出视频" : initialAsset.kind == .file ? "甩出文件" : "甩出照片")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .topBarLeading) { Button(link.connected ? "已连接" : "连接", systemImage: "link") { showConnection = true } }
-                    ToolbarItem(placement: .confirmationAction) { Button("完成") { if let finish = finish { finish() } else { dismiss() } }.disabled(link.isSending) }
+            VStack(spacing: 0) {
+                if selection.busy || selection.items.contains(where: { $0.failure != nil }) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        if let item = selection.items.first(where: { $0.asset == nil && $0.failure == nil }) {
+                            ProgressView(value: item.progress) { Text(item.phase).font(.subheadline) }
+                            Text(item.title).font(.caption).lineLimit(1).foregroundStyle(.secondary)
+                        }
+                        ForEach(selection.items.filter { $0.failure != nil }) { item in
+                            Text("\(item.title)：\(item.failure ?? "")").font(.caption).foregroundStyle(.red)
+                        }
+                        if !selection.busy { Button("移除读取失败的项目") { selection.removeFailed() }.buttonStyle(.glass) }
+                        else { Button("取消读取") { selection.cancel() }.buttonStyle(.glass) }
+                    }.padding(16)
                 }
+                if selection.assets.count > 1 {
+                    ScrollView(.horizontal) {
+                        HStack(spacing: 10) {
+                            ForEach(Array(selection.assets.enumerated()), id: \.element.id) { index, value in
+                                Button { focused = index } label: {
+                                    Image(uiImage: value.image).resizable().scaledToFit().frame(width: 54, height: 58)
+                                        .overlay(alignment: .topTrailing) { if link.deliveredAssetIDs.contains(value.id) { Image(systemName: "checkmark.circle.fill").foregroundStyle(.green) } }
+                                        .padding(4).background(index == focused ? Color.green.opacity(0.16) : Color.clear, in: .rect(cornerRadius: 10))
+                                }.buttonStyle(.plain).accessibilityLabel("第 \(index + 1) 个，\(value.title)")
+                            }
+                        }.padding(.horizontal, 20)
+                    }
+                }
+                SendScreen(link: link, photo: asset, side: side, importing: selection.busy, openConnection: { showConnection = true }, selectMedia: {}, allowsPicker: false,
+                           sendAction: { direction in link.sendBatch(selection.assets, side: direction) }, batchCount: selection.assets.count)
+            }
+            .navigationTitle(selection.items.count > 1 ? "甩出 \(selection.items.count) 个项目" : "选中，即可甩出")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) { Button(link.connected ? "已连接" : "连接", systemImage: "link") { showConnection = true } }
+                ToolbarItem(placement: .confirmationAction) { Button("完成") { selection.cancel(); if let finish = finish { finish() } else { dismiss() } }.disabled(link.busySending) }
+            }
         }
         .onAppear { side = initialSide }
         .sheet(isPresented: $showConnection) { ConnectionSheet(link: link, side: $side).presentationDetents([.medium, .large]) }
         .onChange(of: link.connected) { _, value in if value { showConnection = false } }
         .modifier(LinkDialogs(link: link, enabled: !showConnection))
-        .interactiveDismissDisabled(link.isSending)
+        .interactiveDismissDisabled(link.busySending)
     }
 }
 
@@ -176,10 +187,12 @@ struct SendScreen: View {
     @ObservedObject var link: PeerLink
     let photo: PhotoAsset?
     let side: ThrowSide
-    @Binding var pickerItem: PhotosPickerItem?
     let importing: Bool
     let openConnection: () -> Void
+    let selectMedia: () -> Void
     var allowsPicker = true
+    var sendAction: ((ThrowSide) -> Void)? = nil
+    var batchCount = 1
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var offset = CGSize.zero
     @State private var opacity = 1.0
@@ -195,8 +208,8 @@ struct SendScreen: View {
                     }
                     photoStage(width: max(geometry.size.width - 40, 100), height: max(260, min(geometry.size.height * 0.61, 520)))
                     VStack(spacing: 10) {
-                        if link.isSending { ProgressView(value: link.sendProgress).tint(.green).accessibilityLabel("原文件发送进度") }
-                        Label(link.sendStatus, systemImage: link.sendError ? "exclamationmark.circle" : link.outgoingStage == .delivered ? "checkmark.circle.fill" : "arrow.left.and.right")
+                        if link.busySending { ProgressView(value: link.sendProgress).tint(.green).accessibilityLabel("原文件发送进度") }
+                        Label((link.batchActive ? "\(link.batchCompleted)/\(link.batchTotal) · " : "") + link.sendStatus, systemImage: link.sendError ? "exclamationmark.circle" : link.outgoingStage == .delivered ? "checkmark.circle.fill" : "arrow.left.and.right")
                             .font(.footnote).foregroundStyle(link.sendError ? Color.red : Color.secondary)
                             .frame(maxWidth: .infinity).fixedSize(horizontal: false, vertical: true).accessibilityAddTraits(.updatesFrequently)
                         if link.connected {
@@ -254,12 +267,16 @@ struct SendScreen: View {
                     .clipShape(RoundedRectangle(cornerRadius: 30)).contentShape(Rectangle())
                     .scaleEffect(lifted ? 1.025 : 1).rotationEffect(.degrees(reduceMotion ? 0 : offset.width * 0.035))
                     .offset(offset).opacity(opacity)
-                    .highPriorityGesture(DragGesture(minimumDistance: 8)
-                        .onChanged { value in guard !link.isSending else { return }; lifted = true; offset = value.translation }
+                    .highPriorityGesture(LongPressGesture(minimumDuration: 0.18, maximumDistance: 24).sequenced(before: DragGesture(minimumDistance: 0))
+                        .onChanged { value in
+                            guard !link.busySending, !importing else { return }
+                            if case .second(true, let drag) = value { lifted = true; offset = drag?.translation ?? .zero }
+                        }
                         .onEnded { value in
-                            guard !link.isSending else { return }
+                            guard !link.busySending, !importing, case .second(true, let drag?) = value else { lifted = false; offset = .zero; return }
+                            let value = drag
                             if let direction = FlickRules.throwDirection(dx: value.translation.width, dy: value.translation.height, velocityX: value.velocity.width, velocityY: value.velocity.height, width: width, height: height) { performSend(direction) }
-                            if !link.isSending { withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { offset = .zero; lifted = false } }
+                            if !link.busySending { withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { offset = .zero; lifted = false } }
                         })
                     .accessibilityElement(children: .ignore).accessibilityLabel("选中的内容，上下左右甩出发送")
                     .accessibilityAction(named: Text("发送原文件")) { performSend() }
@@ -267,9 +284,9 @@ struct SendScreen: View {
                 VStack(spacing: 20) {
                     Image(systemName: "photo.on.rectangle.angled").font(.system(size: 54, weight: .ultraLight)).foregroundStyle(.secondary)
                     Text("照片、视频，保留原样。").font(.headline)
-                    PhotosPicker(selection: $pickerItem, matching: .any(of: [.images, .videos]), preferredItemEncoding: .current) {
-                        Label("选择照片或视频", systemImage: "plus")
-                    }.buttonStyle(.glassProminent).controlSize(.large).disabled(importing)
+                    if allowsPicker {
+                        Button("选择照片或视频", systemImage: "plus", action: selectMedia).buttonStyle(.glassProminent).controlSize(.large)
+                    } else { Text(importing ? "准备中，请稍候…" : "尚无可发送项目").foregroundStyle(.secondary) }
                 }.padding(20)
             }
             if importing { ProgressView("正在读取原文件…").padding(20).glassEffect(in: .rect(cornerRadius: 20)) }
@@ -279,25 +296,25 @@ struct SendScreen: View {
         GlassEffectContainer(spacing: 14) {
             HStack(spacing: 12) {
                 if allowsPicker {
-                    PhotosPicker(selection: $pickerItem, matching: .any(of: [.images, .videos]), preferredItemEncoding: .current) {
-                        Image(systemName: "photo.badge.plus").font(.title3).frame(minWidth: 44, minHeight: 44)
-                    }.buttonStyle(.glass).buttonBorderShape(.circle).disabled(link.isSending || importing).accessibilityLabel("选择照片或视频")
+                    Button(action: selectMedia) { Image(systemName: "photo.badge.plus").font(.title3).frame(minWidth: 44, minHeight: 44) }
+                        .buttonStyle(.glass).buttonBorderShape(.circle).disabled(link.busySending || importing).accessibilityLabel("多选照片或视频")
                 }
                 Button { performSend() } label: {
                     HStack(spacing: 8) {
-                        Text(!link.connected ? "连接另一台 iPhone" : link.isSending ? "正在飞过去…" : "甩给 \(link.peerName ?? "朋友")")
+                        Text(!link.connected ? "连接另一台 iPhone" : link.busySending ? "正在飞过去…" : batchCount > 1 ? "甩出 \(batchCount) 个项目" : "甩给 \(link.peerName ?? "朋友")")
                         if !link.isSending { Image(systemName: (link.bearing ?? side).symbol) }
                     }.font(.headline).frame(maxWidth: .infinity).frame(minHeight: 44)
                 }.buttonStyle(.glassProminent).controlSize(.large)
-                    .disabled(importing || link.isSending || (link.connected && (photo == nil || !link.peerAccepting)))
+                    .disabled(importing || link.busySending || (link.connected && (photo == nil || !link.peerAccepting)))
             }
         }
     }
     private func performSend(_ direction: ThrowSide? = nil) {
-        guard !link.isSending else { return }
+        guard !link.busySending, !importing else { return }
         guard link.connected else { openConnection(); return }
         guard let photo = photo else { link.note("先选择照片、视频或文件。", error: true); return }
-        link.send(photo, side: direction ?? link.bearing ?? side)
+        if let sendAction = sendAction { sendAction(direction ?? link.bearing ?? side) }
+        else { link.send(photo, side: direction ?? link.bearing ?? side) }
     }
 }
 
@@ -316,21 +333,17 @@ private struct ReceiveHome: View {
                 VStack(spacing: 10) {
                     Text(!link.connected ? "等你连过来。" : link.accepting ? "等你甩过来。" : "想接时，再打开。")
                         .font(.title2.weight(.semibold)).multilineTextAlignment(.center)
-                    Text(!link.connected ? "开启 Wi-Fi 和蓝牙，双方打开一甩。\n无需路由器，也不需要互联网。" : link.accepting ? "收到邀请后选择是否接收。\n请保持接收页在前台。" : "接收已暂停。")
+                    Text(!link.connected ? "打开蓝牙发现附近设备。\n首次连接请双方打开一甩并核对身份。" : link.accepting ? "信任一次，即可连续接收。\n在 App 任意页面都能接住。" : "接收已暂停。")
                         .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
                 }
                 if !link.connected { Button("连接附近的 iPhone", systemImage: "link", action: openConnection).buttonStyle(.glassProminent).controlSize(.large) }
                 if link.connected {
-                    VStack(spacing: 10) {
-                        Label(link.withinTwentyMeters ? "已确认在 20 米内" : "距离尚未确认在 20 米内", systemImage: link.withinTwentyMeters ? "location.circle.fill" : "location.slash")
-                        if let distance = link.distance { Text(String(format: "实测距离 %.1f 米", distance)).font(.subheadline.monospacedDigit()) }
-                        Text(link.isCurrentFriend ? "已是好友，可在本地连接时分享。" : "陌生人需先测得在 20 米内；也可双方确认添加好友。").font(.caption).foregroundStyle(.secondary)
-                    }.multilineTextAlignment(.center).padding(16).background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: 20))
+                    Label(link.channelName, systemImage: link.usingBluetooth ? "antenna.radiowaves.left.and.right" : "wifi").font(.footnote).foregroundStyle(.secondary)
                 }
                 Toggle("允许接收", isOn: Binding(get: { link.accepting }, set: link.setAccepting))
                     .padding(18).background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: 20))
-                if let photo = link.receivedPhoto {
-                    Button(action: openPhoto) {
+                ForEach(link.inbox) { photo in
+                    NavigationLink { ReceivedPhotoView(link: link, photoID: photo.id) } label: {
                         HStack(spacing: 14) {
                             Image(uiImage: photo.image).resizable().scaledToFit().frame(width: 52, height: 64).clipShape(.rect(cornerRadius: 10))
                             VStack(alignment: .leading, spacing: 5) {
@@ -356,7 +369,7 @@ struct ConnectionSheet: View {
                 Section {
                     LabeledContent("本机", value: link.localName)
                     LabeledContent("连接码") { Text(link.code).font(.title2.monospacedDigit().weight(.medium)).textSelection(.enabled) }
-                } footer: { Text("在对方手机选择本机并核对连接码。设备发现并不代表在 20 米内；连接后核验距离。接收时保持接收页在前台。") }
+                } footer: { Text("附近列表使用蓝牙发现，不判断 20 米。首次连接核对连接码并信任，之后可连续甩送。") }
                 if link.connected {
                     Section("当前连接") {
                         Label(link.peerName ?? "朋友的 iPhone", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
@@ -374,8 +387,8 @@ struct ConnectionSheet: View {
                     }
                 } else {
                     Section {
-                        if link.nearby.isEmpty { HStack { ProgressView(); Text("寻找打开一甩的设备…").foregroundStyle(.secondary) } }
-                        ForEach(link.nearby) { phone in
+                        if link.allNearby.isEmpty { HStack { ProgressView(); Text("寻找打开一甩的设备…").foregroundStyle(.secondary) } }
+                        ForEach(link.allNearby) { phone in
                             Button { link.connect(phone) } label: {
                                 HStack {
                                     Image(systemName: "iphone.radiowaves.left.and.right")
@@ -386,16 +399,18 @@ struct ConnectionSheet: View {
                             }.disabled(link.connecting)
                         }
                         Button("重新寻找") { link.retryDiscovery() }.disabled(link.connecting)
-                    } header: { Text("可手动核验的设备 · 距离未确认") } footer: { Text("这个列表不声称设备都在 20 米内。连接后进行实测，或核对身份并添加好友。无需路由器和互联网；对方保持接收页前台。") }
+                    } header: { Text("蓝牙发现的附近设备") } footer: { Text("两种方式均保留原文件：高速直连无需路由器；纯蓝牙可关闭 Wi-Fi。蓝牙视频速度较慢。首次连接需双方打开 App。") }
                     Section { directionPicker }
                 }
                 Section {
+                    Toggle("纯蓝牙传输（可关闭 Wi-Fi）", isOn: $link.bluetoothOnly).disabled(link.busySending)
+                    Text("需要后台接收时，请提前建立纯蓝牙连接。系统可能暂停后台执行；强制退出 App 后无法接收。").font(.caption).foregroundStyle(.secondary)
                     Toggle("已确认设备自动重连", isOn: $link.autoReconnect)
                     Button("忘记所有配对", role: .destructive) { link.forgetDevices() }
                 } footer: { Text("真实方位需要超宽带权限和合适的手机朝向。测不到时不会显示虚假的方向，可手动向四边甩送给当前连接的设备。") }
                 if let diagnostic = link.diagnostic { Section("连接提示") { Text(diagnostic).font(.footnote).foregroundStyle(.secondary) } }
                 Section { NavigationLink { SoundSettingsView() } label: { Label("甩送音效", systemImage: "speaker.wave.2") } }
-                Section { Text("一甩 0.3.0 · 原生 Liquid Glass\n原文件传输与 SHA-256 校验 · 单次一个，最大 2 GiB").font(.footnote).foregroundStyle(.secondary) }
+                Section { Text("一甩 0.4 开发版 · 原生 Liquid Glass\n原文件传输与 SHA-256 校验 · 支持多选，每个最大 2 GiB").font(.footnote).foregroundStyle(.secondary) }
             }
             .navigationTitle("面对面连接").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } }
@@ -420,7 +435,7 @@ private struct ReceivedPhotoView: View {
     @State private var quickLookURL: URL?
     @State private var player: AVPlayer?
     @State private var saveMessage: String?
-    private var photo: ReceivedPhoto? { link.receivedPhoto?.id == photoID ? link.receivedPhoto : nil }
+    private var photo: ReceivedPhoto? { link.receivedItem(photoID) }
     var body: some View {
         GeometryReader { geometry in
             ZStack {

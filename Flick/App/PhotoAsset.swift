@@ -24,10 +24,13 @@ enum PhotoFiles {
         try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         return root
     }
-    static func digest(_ url: URL) throws -> String {
+    static func digest(_ url: URL, token: PreparationToken? = nil, progress: ((Double) -> Void)? = nil) throws -> String {
         let file = try FileHandle(forReadingFrom: url); defer { try? file.close() }
-        var hash = SHA256()
-        while let part = try file.read(upToCount: 1024 * 1024), !part.isEmpty { hash.update(data: part) }
+        let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 1
+        var hash = SHA256(); var count = 0
+        while let part = try file.read(upToCount: 1024 * 1024), !part.isEmpty {
+            try token?.check(); hash.update(data: part); count += part.count; progress?(Double(count) / Double(max(1, size)))
+        }
         return hash.finalize().map { String(format: "%02x", $0) }.joined()
     }
     static func thumbnail(_ url: URL, maxPixels: Int = 1800) throws -> UIImage {
@@ -39,11 +42,10 @@ enum PhotoFiles {
     }
     static func preview(_ url: URL, kind: MediaKind) throws -> UIImage {
         if kind == .photo { return try thumbnail(url) }
-        if kind == .video {
-            let generator = AVAssetImageGenerator(asset: AVURLAsset(url: url))
-            generator.appliesPreferredTrackTransform = true; generator.maximumSize = CGSize(width: 1200, height: 1200)
-            if let frame = try? generator.copyCGImage(at: .zero, actualTime: nil) { return UIImage(cgImage: frame) }
-        }
+        // A video cover is optional. Never synchronously decode a movie while importing.
+        return placeholder(kind)
+    }
+    static func placeholder(_ kind: MediaKind) -> UIImage {
         let renderer = UIGraphicsImageRenderer(size: CGSize(width: 480, height: 480))
         return renderer.image { context in
             UIColor.secondarySystemBackground.setFill(); context.fill(CGRect(x: 0, y: 0, width: 480, height: 480))
@@ -51,7 +53,7 @@ enum PhotoFiles {
             icon?.draw(in: CGRect(x: 150, y: 140, width: 180, height: 200))
         }
     }
-    static func copyImported(_ source: URL, name: String? = nil) throws -> URL {
+    static func copyImported(_ source: URL, name: String? = nil, token: PreparationToken? = nil, progress: ((Double) -> Void)? = nil) throws -> URL {
         let values = try source.resourceValues(forKeys: [.fileSizeKey, .isDirectoryKey])
         guard values.isDirectory != true else { throw PhotoFailure.invalid }
         guard let count = values.fileSize, count > 0, count <= FlickRules.maxFileBytes else { throw PhotoFailure.tooLarge }
@@ -60,7 +62,17 @@ enum PhotoFiles {
         var filename = FlickRules.safeFilename(name ?? source.lastPathComponent)
         if URL(fileURLWithPath: filename).pathExtension.isEmpty && !source.pathExtension.isEmpty { filename += "." + source.pathExtension }
         let destination = folder.appendingPathComponent(FlickRules.safeFilename(filename))
-        try FileManager.default.copyItem(at: source, to: destination)
+        FileManager.default.createFile(atPath: destination.path, contents: nil)
+        do {
+            let reader = try FileHandle(forReadingFrom: source); defer { try? reader.close() }
+            let writer = try FileHandle(forWritingTo: destination); defer { try? writer.close() }
+            var copied = 0
+            while let part = try reader.read(upToCount: 1024 * 1024), !part.isEmpty {
+                try token?.check(); try writer.write(contentsOf: part); copied += part.count
+                progress?(Double(copied) / Double(count))
+            }
+            guard copied == count else { throw PhotoFailure.invalid }
+        } catch { try? FileManager.default.removeItem(at: folder); throw error }
         return destination
     }
     static func cleanupOldFiles() {
@@ -88,7 +100,8 @@ struct PhotoAsset: Identifiable {
     let fileExtension: String
     let title: String
     let kind: MediaKind
-    static func prepare(_ source: URL) throws -> PhotoAsset {
+    static func prepare(_ source: URL, token: PreparationToken? = nil, progress: ((Double) -> Void)? = nil) throws -> PhotoAsset {
+        try token?.check()
         let values = try source.resourceValues(forKeys: [.fileSizeKey, .contentTypeKey, .isDirectoryKey])
         let size = values.fileSize ?? 0
         guard values.isDirectory != true, size > 0, size <= FlickRules.maxFileBytes else { throw PhotoFailure.tooLarge }
@@ -104,12 +117,16 @@ struct PhotoAsset: Identifiable {
         if let raw = raw, let imageType = CGImageSourceGetType(raw) { ext = UTType(imageType as String)?.preferredFilenameExtension ?? ext }
         if ext.count > 16 || !ext.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber) }) { ext = "bin" }
         let filename = FlickRules.safeFilename(source.lastPathComponent)
-        let asset = PhotoAsset(id: UUID(), url: source, image: image, previewData: preview, sha256: try PhotoFiles.digest(source), byteCount: size, fileExtension: ext, title: filename, kind: kind)
+        let asset = PhotoAsset(id: UUID(), url: source, image: image, previewData: preview, sha256: try PhotoFiles.digest(source, token: token, progress: progress), byteCount: size, fileExtension: ext, title: filename, kind: kind)
         guard asset.offer(side: .right).isValid else { throw PhotoFailure.invalid }
         return asset
     }
     func offer(side: ThrowSide) -> TransferOffer {
         TransferOffer(id: UUID(), title: String(title.prefix(120)), byteCount: byteCount, sha256: sha256, fileExtension: fileExtension, side: side, kind: kind, filename: FlickRules.safeFilename(title))
+    }
+    var bluetoothPreview: Data {
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: 180, height: 180))
+        return renderer.image { _ in image.draw(in: CGRect(x: 0, y: 0, width: 180, height: 180)) }.jpegData(compressionQuality: 0.35) ?? previewData
     }
 }
 struct ReceivedPhoto: Identifiable {

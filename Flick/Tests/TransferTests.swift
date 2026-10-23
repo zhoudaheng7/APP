@@ -49,7 +49,7 @@ final class TransferTests: XCTestCase {
     func testPacketRoundTripPreservesOriginalMetadata() throws {
         let offer = makeOffer(); let packet = WirePacket(.offer, id: offer.id, offer: offer, preview: Data([1, 2, 3]))
         let copy = try JSONDecoder().decode(WirePacket.self, from: JSONEncoder().encode(packet))
-        XCTAssertEqual(copy.offer, offer); XCTAssertEqual(copy.preview, Data([1, 2, 3])); XCTAssertEqual(copy.version, 3)
+        XCTAssertEqual(copy.offer, offer); XCTAssertEqual(copy.preview, Data([1, 2, 3])); XCTAssertEqual(copy.version, 4)
     }
     func testFourDirectionsAndOppositeEdges() {
         for direction in ThrowSide.allCases {
@@ -90,21 +90,17 @@ final class TransferTests: XCTestCase {
         XCTAssertFalse(IdentityProof.verify(key: key.publicKey.rawRepresentation, signature: signature, challenge: UUID().uuidString, responderNonce: nonce))
         XCTAssertFalse(IdentityProof.verify(key: key.publicKey.rawRepresentation, signature: signature, challenge: challenge, responderNonce: UUID().uuidString))
     }
-    func testStrangersAlwaysNeedConsentAndClosedSurfaceRejects() {
-        XCTAssertEqual(ReceivePolicy.decide(enabled: true, isFriend: false, autoFriends: true, surfaceReady: true), .ask)
-        XCTAssertEqual(ReceivePolicy.decide(enabled: true, isFriend: true, autoFriends: false, surfaceReady: true), .ask)
-        XCTAssertEqual(ReceivePolicy.decide(enabled: true, isFriend: true, autoFriends: true, surfaceReady: false), .reject)
-        XCTAssertEqual(ReceivePolicy.decide(enabled: false, isFriend: true, autoFriends: true, surfaceReady: true), .reject)
+    func testTrustedDeviceReceivesOnAnyPageAndBluetoothInBackground() {
+        XCTAssertEqual(ReceivePolicy.decide(enabled: true, trusted: true, automatic: true, foreground: true, bluetooth: false), .open)
+        XCTAssertEqual(ReceivePolicy.decide(enabled: true, trusted: true, automatic: true, foreground: false, bluetooth: true), .open)
+        XCTAssertEqual(ReceivePolicy.decide(enabled: true, trusted: true, automatic: true, foreground: false, bluetooth: false), .reject)
+        XCTAssertEqual(ReceivePolicy.decide(enabled: false, trusted: true, automatic: true, foreground: true, bluetooth: true), .reject)
     }
-    func testOnlyOptedInFriendsCanAutomaticallyOpen() {
-        XCTAssertEqual(ReceivePolicy.decide(enabled: true, isFriend: true, autoFriends: true, surfaceReady: true), .open)
-    }
-    func testTwentyMeterBoundaryRejectsUnknownStaleAndInvalidReadings() {
-        XCTAssertTrue(ReceivePolicy.isWithinTwentyMeters(20, fresh: true))
-        XCTAssertTrue(ReceivePolicy.isWithinTwentyMeters(0.2, fresh: true))
-        let invalid: [Float?] = [nil, 20.01, -1, Float.nan, Float.infinity]
-        for value in invalid { XCTAssertFalse(ReceivePolicy.isWithinTwentyMeters(value, fresh: true)) }
-        XCTAssertFalse(ReceivePolicy.isWithinTwentyMeters(8, fresh: false))
+    func testUntrustedOrManualReceiptsNeverOpenInBackground() {
+        XCTAssertEqual(ReceivePolicy.decide(enabled: true, trusted: false, automatic: true, foreground: true, bluetooth: true), .ask)
+        XCTAssertEqual(ReceivePolicy.decide(enabled: true, trusted: false, automatic: true, foreground: false, bluetooth: true), .reject)
+        XCTAssertEqual(ReceivePolicy.decide(enabled: true, trusted: true, automatic: false, foreground: true, bluetooth: false), .ask)
+        XCTAssertEqual(ReceivePolicy.decide(enabled: true, trusted: true, automatic: false, foreground: false, bluetooth: true), .reject)
     }
     func testSoundPacksIncludeBothRolesAndSilence() {
         var resources = Set<String>()
