@@ -58,7 +58,11 @@ final class PeerLink: NSObject, ObservableObject {
     @Published var bluetoothOnly = UserDefaults.standard.bool(forKey: "flick.bluetoothOnly") {
         didSet {
             UserDefaults.standard.set(bluetoothOnly, forKey: "flick.bluetoothOnly")
-            if oldValue != bluetoothOnly { disconnect(reason: "传输方式已切换，请重新连接对方。") }
+            if oldValue != bluetoothOnly {
+                disconnect(reason: "传输方式已切换，请重新连接对方。")
+                if bluetoothOnly { advertiser?.stopAdvertisingPeer(); browser?.stopBrowsingForPeers(); nearby = [] }
+                else if running && discoverable { advertiser?.startAdvertisingPeer(); browser?.startBrowsingForPeers() }
+            }
         }
     }
     var busySending: Bool { isSending || batchActive }
@@ -83,7 +87,7 @@ final class PeerLink: NSObject, ObservableObject {
     @Published var discoverable = UserDefaults.standard.object(forKey: "flick.discoverable") as? Bool ?? true {
         didSet {
             UserDefaults.standard.set(discoverable, forKey: "flick.discoverable")
-            if discoverable { if running { advertiser?.startAdvertisingPeer(); browser?.startBrowsingForPeers() } }
+            if discoverable { if running && !bluetoothOnly { advertiser?.startAdvertisingPeer(); browser?.startBrowsingForPeers() } }
             else { advertiser?.stopAdvertisingPeer(); browser?.stopBrowsingForPeers(); nearby = []; bluetoothNearby = [] }
             bluetooth.setDiscoverable(discoverable)
         }
@@ -215,7 +219,7 @@ final class PeerLink: NSObject, ObservableObject {
         advertiser?.delegate = self
         browser = MCNearbyServiceBrowser(peer: peerID, serviceType: service)
         browser?.delegate = self
-        if discoverable { advertiser?.startAdvertisingPeer(); browser?.startBrowsingForPeers() }
+        if discoverable && !bluetoothOnly { advertiser?.startAdvertisingPeer(); browser?.startBrowsingForPeers() }
     }
     func suspend() {
         SoundFeedback.shared.stop()
@@ -731,7 +735,10 @@ extension PeerLink: MCNearbyServiceBrowserDelegate {
         }
     }
     func browser(_ browser: MCNearbyServiceBrowser, didNotStartBrowsingForPeers error: Error) {
-        DispatchQueue.main.async { [weak self] in self?.diagnostic = "无法发现附近设备。请在设置中允许一甩使用本地网络，并打开 Wi-Fi 和蓝牙。\n\(error.localizedDescription)" }
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self, !self.bluetoothOnly, !self.usingBluetooth else { return }
+            self.diagnostic = "高速发现不可用。可切换纯蓝牙，或检查本地网络权限和 Wi-Fi 开关。\n\(error.localizedDescription)"
+        }
     }
 }
 extension PeerLink: MCNearbyServiceAdvertiserDelegate {
@@ -748,7 +755,10 @@ extension PeerLink: MCNearbyServiceAdvertiserDelegate {
         }
     }
     func advertiser(_ advertiser: MCNearbyServiceAdvertiser, didNotStartAdvertisingPeer error: Error) {
-        DispatchQueue.main.async { [weak self] in self?.diagnostic = "附近广播未开启。请检查本地网络权限。\n\(error.localizedDescription)" }
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self, !self.bluetoothOnly, !self.usingBluetooth else { return }
+            self.diagnostic = "高速广播未开启。可切换纯蓝牙，或检查本地网络权限。\n\(error.localizedDescription)"
+        }
     }
 }
 extension PeerLink: MCSessionDelegate {
