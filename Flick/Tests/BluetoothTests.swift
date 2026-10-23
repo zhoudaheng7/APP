@@ -43,7 +43,7 @@ final class BluetoothTests: XCTestCase {
         let (_, a, _, b) = peers(), signingKey = P256.Signing.PrivateKey()
         let message = try BluetoothHandshake.proof(local: a, remote: b, signer: a.id)
         let signature = try signingKey.signature(for: message)
-        XCTAssertEqual(try BluetoothHandshake.transcript(a, b), BluetoothHandshake.transcript(b, a))
+        XCTAssertEqual(try BluetoothHandshake.transcript(a, b), try BluetoothHandshake.transcript(b, a))
         XCTAssertTrue(signingKey.publicKey.isValidSignature(signature, for: message))
         XCTAssertFalse(signingKey.publicKey.isValidSignature(signature, for: try BluetoothHandshake.proof(local: a, remote: b, signer: b.id)))
         let changed = BluetoothHello(id: b.id, signingKey: b.signingKey, exchangeKey: Curve25519.KeyAgreement.PrivateKey().publicKey.rawRepresentation, nonce: b.nonce)

@@ -73,7 +73,7 @@ struct FlickRootView: View {
         }
         .modifier(LinkDialogs(link: link, enabled: !showConnection && presentation == nil && !showPicker && !files))
         .onChange(of: link.receivedPhoto?.id) { _, id in
-            if let id = id, presentation == nil, !showConnection, !showPicker, !files, UIApplication.shared.applicationState == .active {
+            if let id = id, presentation?.composing != true, !showConnection, !showPicker, !files, UIApplication.shared.applicationState == .active {
                 var transaction = Transaction(); transaction.disablesAnimations = true
                 withTransaction(transaction) { presentation = PhotoPresentation(id: id) }
             }

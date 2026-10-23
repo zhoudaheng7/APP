@@ -233,7 +233,7 @@ final class PeerLink: NSObject, ObservableObject {
         // No audio/location keepalive and no UI presentation from background.
     }
     private func bluetoothOpened(_ name: String) {
-        if connectedPeer != nil { bluetooth.disconnect("已有高速连接，请先断开后切换。"); return }
+        if connectedPeer != nil || expectedPeer != nil || invitationReply != nil { bluetooth.disconnect("已有高速连接，请先断开后切换。"); return }
         usingBluetooth = true; connecting = true; peerName = name
         localNonce = UUID().uuidString; exchangeKey = Curve25519.KeyAgreement.PrivateKey(); remoteHello = nil; authenticated = false; connectionGeneration = UUID()
         sendHello()
@@ -390,7 +390,7 @@ final class PeerLink: NSObject, ObservableObject {
         ReceiveInbox.remove(id); inbox.removeAll { $0.id == id }; if receivedPhoto?.id == id { receivedPhoto = inbox.first }
     }
     func sendBatch(_ assets: [PhotoAsset], side: ThrowSide) {
-        guard !busySending, connected, peerAccepting else { note("请先连接并确认对方允许接收。", error: true); return }
+        guard !busySending, connected, peerAccepting, incomingOffer == nil, isForeground, running else { note("请先连接并等待当前接收完成。", error: true); return }
         queuedAssets = assets.filter { !deliveredAssetIDs.contains($0.id) }
         guard !queuedAssets.isEmpty else { note("这批内容均已确认送达。"); return }
         batchTotal = queuedAssets.count; batchCompleted = 0; batchSide = side; batchActive = true; sendNextInBatch()
@@ -399,6 +399,7 @@ final class PeerLink: NSObject, ObservableObject {
         guard batchActive, !isSending else { return }
         guard let asset = queuedAssets.first else { batchActive = false; note("\(batchCompleted) 个原文件已全部送达并校验。"); return }
         send(asset, side: batchSide)
+        if !isSending { batchActive = false; queuedAssets = [] }
     }
     func cancelSending() { batchActive = false; queuedAssets = []; failOutgoing("发送已取消，未送达项目可重试。") }
     func send(_ asset: PhotoAsset, side: ThrowSide) {
@@ -430,10 +431,10 @@ final class PeerLink: NSObject, ObservableObject {
         try? sendPacket(packet)
     }
     private func scheduleAutoConnect(_ phone: NearbyPhone) {
-        guard !bluetoothOnly, autoReconnect, allowAutoInvite, discoverable, !blockedIDs.contains(phone.deviceID), identity.trustedKey(for: phone.deviceID) != nil else { return }
+        guard !connected, !usingBluetooth, !bluetoothOnly, autoReconnect, allowAutoInvite, discoverable, !blockedIDs.contains(phone.deviceID), identity.trustedKey(for: phone.deviceID) != nil else { return }
         let delay = identity.deviceID < phone.deviceID ? 0.4 : 1.8
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-            guard let self = self, self.running, self.discoverable, !self.blockedIDs.contains(phone.deviceID), self.nearby.contains(where: { $0.peer == phone.peer }), self.autoReconnect, self.allowAutoInvite, self.connectedPeer == nil, !self.connecting, self.invitationReply == nil else { return }
+            guard let self = self, !self.connected, !self.usingBluetooth, self.running, self.discoverable, !self.blockedIDs.contains(phone.deviceID), self.nearby.contains(where: { $0.peer == phone.peer }), self.autoReconnect, self.allowAutoInvite, self.connectedPeer == nil, !self.connecting, self.invitationReply == nil else { return }
             self.expectedPeer = phone.peer; self.connecting = true; self.manuallyConfirmed = false; self.autoPendingID = phone.deviceID
             self.invite(phone)
         }
@@ -744,6 +745,7 @@ extension PeerLink: MCSessionDelegate {
     func session(_ session: MCSession, peer peerID: MCPeerID, didChange state: MCSessionState) {
         DispatchQueue.main.async { [weak self] in
             guard let self = self, session === self.session else { return }
+            if self.usingBluetooth { session.disconnect(); return }
             switch state {
             case .connected:
                 guard self.connectedPeer == nil, self.expectedPeer == peerID else { self.disconnect(reason: "连接对象已变化，请重新确认。"); return }
