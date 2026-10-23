@@ -12,6 +12,7 @@ final class ShareImport: ObservableObject {
             failure = "请从系统照片或文件选择一个项目后，再分享给一甩。"; return
         }
         let identifiers = provider.registeredTypeIdentifiers
+        let suggestedName = provider.suggestedName
         let type = identifiers.first { id in
             guard let type = UTType(id) else { return false }
             return type.conforms(to: .image) || type.conforms(to: .movie)
@@ -24,7 +25,7 @@ final class ShareImport: ObservableObject {
                             do {
                                 guard let source = source else { throw error ?? PhotoFailure.invalid }
                                 // Provider URLs expire when this callback returns. Copy before resuming.
-                                let copy = try PhotoFiles.copyImported(source, name: provider.suggestedName)
+                                let copy = try PhotoFiles.copyImported(source, name: suggestedName)
                                 continuation.resume(returning: copy)
                             } catch { continuation.resume(throwing: error) }
                         }
@@ -34,7 +35,7 @@ final class ShareImport: ObservableObject {
                                 guard let source = item as? URL else { throw error ?? PhotoFailure.invalid }
                                 let access = source.startAccessingSecurityScopedResource()
                                 defer { if access { source.stopAccessingSecurityScopedResource() } }
-                                continuation.resume(returning: try PhotoFiles.copyImported(source, name: provider.suggestedName))
+                                continuation.resume(returning: try PhotoFiles.copyImported(source, name: suggestedName))
                             } catch { continuation.resume(throwing: error) }
                         }
                     } else { continuation.resume(throwing: PhotoFailure.invalid) }

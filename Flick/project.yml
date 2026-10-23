@@ -1,6 +1,7 @@
 name: Flick
 options:
   bundleIdPrefix: com.zhoudaheng7
+  developmentLanguage: zh-Hans
   deploymentTarget:
     iOS: '26.0'
 settings:
@@ -25,6 +26,9 @@ targets:
       path: App/Info.plist
       properties:
         CFBundleDisplayName: 一甩
+        CFBundleDevelopmentRegion: zh-Hans
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSLocalNetworkUsageDescription: 发现附近已确认的一甩设备，直接传送照片、视频和文件。
         NSBonjourServices: ['_flick-photo._tcp', '_flick-photo._udp']
         NSBluetoothAlwaysUsageDescription: 与附近已确认的一甩设备建立传输连接。
@@ -50,6 +54,9 @@ targets:
       path: ShareExtension/Info.plist
       properties:
         CFBundleDisplayName: 一甩
+        CFBundleDevelopmentRegion: zh-Hans
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSLocalNetworkUsageDescription: 在分享窗口直接连接已确认设备，传送原文件。
         NSBonjourServices: ['_flick-photo._tcp', '_flick-photo._udp']
         NSBluetoothAlwaysUsageDescription: 发现附近已确认的一甩设备。
