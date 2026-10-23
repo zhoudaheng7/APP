@@ -27,7 +27,9 @@ assert not info.get('UIDesignRequiresCompatibility', False)
 assert 'NSLocalNetworkUsageDescription' in info and '_flick-photo._tcp' in info['NSBonjourServices']
 assert info['NSNearbyInteractionUsageDescription']
 assert info['CFBundleDisplayName'] == '\u4e00\u7529'
-assert info['CFBundleShortVersionString'] == '0.2.0'
+assert info['CFBundleShortVersionString'] == '0.3.0'
+assert set(info['CFBundleIcons']['CFBundleAlternateIcons']) == {'FlickPhoto','FlickRipple','FlickOrange','FlickDuet','FlickHappy'}
+assert len(list(app.glob('*.wav'))) == 12
 extensions = list((app / 'PlugIns').glob('*.appex'))
 assert len(extensions) == 1, 'Expected embedded native share extension'
 extension_info = plistlib.loads((extensions[0] / 'Info.plist').read_bytes())
@@ -38,6 +40,7 @@ assert ext_magic == 0xFEEDFACF and ext_cpu == 0x0100000C
 assert extension_info['NSExtension']['NSExtensionPointIdentifier'] == 'com.apple.share-services'
 assert extension_info['CFBundleShortVersionString'] == info['CFBundleShortVersionString']
 assert extension_info['UIDeviceFamily'] == [1]
+assert len(list(extensions[0].glob('*.wav'))) == 12
 executables = {executable, extension_executable}
 assert not list(app.rglob('*.p12')) and not list(app.rglob('*.mobileprovision'))
 destination.parent.mkdir(parents=True, exist_ok=True)

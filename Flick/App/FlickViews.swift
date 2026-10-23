@@ -38,9 +38,18 @@ struct FlickRootView: View {
                     .navigationTitle("接住这一刻").toolbar { connectionToolbar }
                 }
             }
+            Tab("好友", systemImage: "person.2", value: 2) {
+                NavigationStack { FriendsView(link: link, connect: { showConnection = true }) }
+            }
+            Tab("设置", systemImage: "slider.horizontal.3", value: 3) {
+                NavigationStack { FlickSettingsView(link: link) }
+            }
         }
         .sheet(isPresented: $showConnection) {
             ConnectionSheet(link: link, side: $side).presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
+        }
+        .sheet(item: $link.incomingRequest, onDismiss: { link.finishConsentPresentation() }) { request in
+            IncomingRequestView(link: link, request: request).presentationDetents([.medium, .large])
         }
         .fullScreenCover(item: $presentation) { item in
             if item.composing, let asset = selected {
@@ -65,7 +74,7 @@ struct FlickRootView: View {
             case .failure(let error): link.note(error.localizedDescription, error: true)
             }
         }
-        .alert(item: $link.invitation) { request in connectionAlert(request, link: link) }
+        .modifier(LinkDialogs(link: link, enabled: !showConnection && presentation == nil))
         .onChange(of: pickerItem) { _, item in
             guard let item = item else { return }; importing = true
             Task { @MainActor in
@@ -84,17 +93,21 @@ struct FlickRootView: View {
             }
         }
         .onChange(of: link.connected) { _, value in if value { showConnection = false } }
+        .onChange(of: tab) { _, _ in updateReceivingSurface() }
+        .onChange(of: presentation?.id) { _, _ in updateReceivingSurface() }
+        .onChange(of: showConnection) { _, _ in updateReceivingSurface() }
         .onOpenURL { url in if url.scheme == "flick", url.host == "receive" { startReceiving() } }
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("FlickStartReceiving"))) { _ in startReceiving() }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in consumeShortcut() }
-        .onAppear { consumeShortcut() }
+        .onAppear { consumeShortcut(); updateReceivingSurface() }
     }
     private func compose(_ asset: PhotoAsset) {
         selected = asset; presentation = PhotoPresentation(id: asset.id, composing: true)
         link.note("准备好了，上下左右都可以甩出。")
-        UISelectionFeedbackGenerator().selectionChanged()
+        FlickFeedback.selection()
     }
     private func consumeShortcut() { if UserDefaults.standard.bool(forKey: "flick.startReceiving") { startReceiving() } }
+    private func updateReceivingSurface() { link.canPresentIncoming = tab == 1 && presentation == nil && !showConnection }
     private func startReceiving() {
         UserDefaults.standard.set(false, forKey: "flick.startReceiving")
         tab = 1; link.setAccepting(true); link.activate(); link.retryDiscovery()
@@ -110,7 +123,26 @@ struct FlickRootView: View {
 #endif
 
 private func connectionAlert(_ request: ConnectionRequest, link: PeerLink) -> Alert {
-    Alert(title: Text("连接并允许自动展示？"), message: Text("\(request.name) 想与你连接。请核对对方连接码：\(request.code)\n\n开启自动重连后，会记住已确认的设备。可随时暂停接收或忘记配对。"), primaryButton: .default(Text("允许连接")) { link.answerInvitation(true) }, secondaryButton: .cancel(Text("拒绝")) { link.answerInvitation(false) })
+    Alert(title: Text("连接此设备？"), message: Text("\(request.name) 想与你连接。请核对对方连接码：\(request.code)\n\n每次接收先询问；好友可在设置中允许自动展开。可随时暂停接收或忘记配对。"), primaryButton: .default(Text("允许连接")) { link.answerInvitation(true) }, secondaryButton: .cancel(Text("拒绝")) { link.answerInvitation(false) })
+}
+
+private enum LinkDialog: Identifiable {
+    case connection(ConnectionRequest), friend(FriendInvitation)
+    var id: UUID { switch self { case .connection(let value): return value.id; case .friend(let value): return value.id } }
+}
+private struct LinkDialogs: ViewModifier {
+    @ObservedObject var link: PeerLink
+    var enabled = true
+    func body(content: Content) -> some View {
+        content.alert(item: Binding<LinkDialog?>(get: {
+            guard enabled else { return nil }
+            if let value = link.invitation { return .connection(value) }
+            if let value = link.friendInvitation { return .friend(value) }
+            return nil
+        }, set: { _ in })) { dialog in
+            switch dialog { case .connection(let value): return connectionAlert(value, link: link); case .friend(let value): return friendAlert(value, link: link) }
+        }
+    }
 }
 
 struct ComposerScreen: View {
@@ -135,7 +167,7 @@ struct ComposerScreen: View {
         .onAppear { side = initialSide }
         .sheet(isPresented: $showConnection) { ConnectionSheet(link: link, side: $side).presentationDetents([.medium, .large]) }
         .onChange(of: link.connected) { _, value in if value { showConnection = false } }
-        .alert(item: $link.invitation) { request in connectionAlert(request, link: link) }
+        .modifier(LinkDialogs(link: link, enabled: !showConnection))
         .interactiveDismissDisabled(link.isSending)
     }
 }
@@ -196,7 +228,7 @@ struct SendScreen: View {
         .onChange(of: link.outgoingStage) { _, stage in
             switch stage {
             case .awaitingPreview:
-                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                FlickFeedback.impact(.medium)
                 withAnimation(reduceMotion ? .linear(duration: 0.1) : .easeIn(duration: 0.3)) {
                     offset = CGSize(width: link.lastThrowSide.x * 560, height: link.lastThrowSide.y * 800); opacity = 0
                 }
@@ -284,11 +316,18 @@ private struct ReceiveHome: View {
                 VStack(spacing: 10) {
                     Text(!link.connected ? "等你连过来。" : link.accepting ? "等你甩过来。" : "想接时，再打开。")
                         .font(.title2.weight(.semibold)).multilineTextAlignment(.center)
-                    Text(!link.connected ? "开启 Wi-Fi 和蓝牙，双方打开一甩。\n无需路由器，也不需要互联网。" : link.accepting ? "照片、视频和文件会从边缘飞入。\n请保持此 App 在前台。" : "自动展示已暂停。")
+                    Text(!link.connected ? "开启 Wi-Fi 和蓝牙，双方打开一甩。\n无需路由器，也不需要互联网。" : link.accepting ? "收到邀请后选择是否接收。\n请保持接收页在前台。" : "接收已暂停。")
                         .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
                 }
                 if !link.connected { Button("连接附近的 iPhone", systemImage: "link", action: openConnection).buttonStyle(.glassProminent).controlSize(.large) }
-                Toggle("允许自动展示", isOn: Binding(get: { link.accepting }, set: link.setAccepting))
+                if link.connected {
+                    VStack(spacing: 10) {
+                        Label(link.withinTwentyMeters ? "已确认在 20 米内" : "距离尚未确认在 20 米内", systemImage: link.withinTwentyMeters ? "location.circle.fill" : "location.slash")
+                        if let distance = link.distance { Text(String(format: "实测距离 %.1f 米", distance)).font(.subheadline.monospacedDigit()) }
+                        Text(link.isCurrentFriend ? "已是好友，可在本地连接时分享。" : "陌生人需先测得在 20 米内；也可双方确认添加好友。").font(.caption).foregroundStyle(.secondary)
+                    }.multilineTextAlignment(.center).padding(16).background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: 20))
+                }
+                Toggle("允许接收", isOn: Binding(get: { link.accepting }, set: link.setAccepting))
                     .padding(18).background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: 20))
                 if let photo = link.receivedPhoto {
                     Button(action: openPhoto) {
@@ -317,7 +356,7 @@ struct ConnectionSheet: View {
                 Section {
                     LabeledContent("本机", value: link.localName)
                     LabeledContent("连接码") { Text(link.code).font(.title2.monospacedDigit().weight(.medium)).textSelection(.enabled) }
-                } footer: { Text("在对方手机选择本机并核对连接码。已确认设备可自动重连，接收时需保持 App 在前台。") }
+                } footer: { Text("在对方手机选择本机并核对连接码。设备发现并不代表在 20 米内；连接后核验距离。接收时保持接收页在前台。") }
                 if link.connected {
                     Section("当前连接") {
                         Label(link.peerName ?? "朋友的 iPhone", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
@@ -325,8 +364,11 @@ struct ConnectionSheet: View {
                         else { Text(link.bearingHint ?? "正在测量方位；暂不可用时可四向甩送。").font(.footnote).foregroundStyle(.secondary) }
                         if let distance = link.distance { LabeledContent("距离", value: String(format: "%.1f 米", distance)) }
                         directionPicker
+                        if !link.isCurrentFriend {
+                            Button(link.requestingFriend ? "等待好友确认…" : "发送好友申请", systemImage: "person.badge.plus") { link.requestFriend() }.disabled(link.requestingFriend)
+                        } else { Label("已是好友", systemImage: "person.crop.circle.badge.checkmark") }
                         #if !APP_EXTENSION
-                        Toggle("允许自动展示", isOn: Binding(get: { link.accepting }, set: link.setAccepting))
+                        Toggle("允许接收", isOn: Binding(get: { link.accepting }, set: link.setAccepting))
                         #endif
                         Button("断开连接", role: .destructive) { link.disconnect(); dismiss() }
                     }
@@ -344,7 +386,7 @@ struct ConnectionSheet: View {
                             }.disabled(link.connecting)
                         }
                         Button("重新寻找") { link.retryDiscovery() }.disabled(link.connecting)
-                    } header: { Text("附近的 iPhone") } footer: { Text("无需连接同一路由器或互联网。开启 Wi-Fi 和蓝牙，允许本地网络；对方打开 App 的接收界面。") }
+                    } header: { Text("可手动核验的设备 · 距离未确认") } footer: { Text("这个列表不声称设备都在 20 米内。连接后进行实测，或核对身份并添加好友。无需路由器和互联网；对方保持接收页前台。") }
                     Section { directionPicker }
                 }
                 Section {
@@ -352,11 +394,13 @@ struct ConnectionSheet: View {
                     Button("忘记所有配对", role: .destructive) { link.forgetDevices() }
                 } footer: { Text("真实方位需要超宽带权限和合适的手机朝向。测不到时不会显示虚假的方向，可手动向四边甩送给当前连接的设备。") }
                 if let diagnostic = link.diagnostic { Section("连接提示") { Text(diagnostic).font(.footnote).foregroundStyle(.secondary) } }
-                Section { Text("一甩 0.2.0 · 原生 Liquid Glass\n原文件传输与 SHA-256 校验 · 单次一个，最大 2 GB").font(.footnote).foregroundStyle(.secondary) }
+                Section { NavigationLink("甩送音效", systemImage: "speaker.wave.2") { SoundSettingsView() } }
+                Section { Text("一甩 0.3.0 · 原生 Liquid Glass\n原文件传输与 SHA-256 校验 · 单次一个，最大 2 GiB").font(.footnote).foregroundStyle(.secondary) }
             }
             .navigationTitle("面对面连接").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } }
         }
+        .modifier(LinkDialogs(link: link))
     }
     private var directionPicker: some View {
         Picker("按钮默认方向", selection: $side) { ForEach(ThrowSide.allCases, id: \.self) { Text($0.label).tag($0) } }.disabled(link.isSending)
@@ -422,7 +466,7 @@ private struct ReceivedPhotoView: View {
                 withAnimation(reduceMotion ? .linear(duration: 0.12) : .spring(response: 0.62, dampingFraction: 0.85)) { entered = true }
                 link.previewPresented(id: photoID)
             }
-            UIImpactFeedbackGenerator(style: .soft).impactOccurred(); preparePlayer()
+            FlickFeedback.impact(.soft); preparePlayer()
         }
         .onChange(of: photo?.originalURL) { _, _ in preparePlayer() }
         .onDisappear { player?.pause() }

@@ -38,12 +38,12 @@ jobs:
             -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' \
             -derivedDataPath build/device CODE_SIGNING_ALLOWED=NO | tee output/device-build.log
       - name: Package unsigned IPA for the user's phone certificates
-        run: python3 scripts/package_ipa.py build/device/Build/Products/Release-iphoneos/Flick.app output/Flick-0.2.0-unsigned.ipa
+        run: python3 scripts/package_ipa.py build/device/Build/Products/Release-iphoneos/Flick.app output/Flick-0.3.0-unsigned.ipa
       - name: Upload device IPA and verification
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Flick-iPhone-LiquidGlass-v0.2
+          name: Flick-iPhone-LiquidGlass-v0.3
           path: Flick/output/
           if-no-files-found: error
           retention-days: 14

@@ -2,6 +2,11 @@ import Foundation
 import CryptoKit
 import Security
 
+struct LocalFriend: Codable, Identifiable {
+    let id: String
+    let name: String
+}
+
 final class LocalIdentity {
     let deviceID: String
     let key: P256.Signing.PrivateKey
@@ -30,4 +35,15 @@ final class LocalIdentity {
         values[id] = key.base64EncodedString(); UserDefaults.standard.set(values, forKey: "flick.trusted.v2")
     }
     func forget() { UserDefaults.standard.removeObject(forKey: "flick.trusted.v2") }
+    var friends: [LocalFriend] {
+        guard let data = UserDefaults.standard.data(forKey: "flick.friends.v3"), let value = try? JSONDecoder().decode([LocalFriend].self, from: data) else { return [] }
+        return value
+    }
+    func addFriend(id: String, name: String) {
+        var value = friends.filter { $0.id != id }; value.append(LocalFriend(id: id, name: name))
+        UserDefaults.standard.set(try? JSONEncoder().encode(value), forKey: "flick.friends.v3")
+    }
+    func removeFriend(id: String) {
+        UserDefaults.standard.set(try? JSONEncoder().encode(friends.filter { $0.id != id }), forKey: "flick.friends.v3")
+    }
 }

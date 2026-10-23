@@ -62,9 +62,9 @@ public struct TransferOffer: Codable, Equatable, Sendable {
     }
 }
 
-public enum PacketKind: String, Codable, Sendable { case hello, proof, offer, ready, presented, received, cancel, reject }
+public enum PacketKind: String, Codable, Sendable { case hello, proof, offer, ready, presented, received, cancel, reject, friendRequest, friendReply, friendRemoved }
 public struct WirePacket: Codable, Sendable {
-    public var version: Int = 2
+    public var version: Int = 3
     public var kind: PacketKind
     public var id: UUID?
     public var offer: TransferOffer?
