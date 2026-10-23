@@ -106,8 +106,15 @@ struct PhotoAsset: Identifiable {
         let size = values.fileSize ?? 0
         guard values.isDirectory != true, size > 0, size <= FlickRules.maxFileBytes else { throw PhotoFailure.tooLarge }
         let type = values.contentType ?? UTType(filenameExtension: source.pathExtension)
-        let raw = CGImageSourceCreateWithURL(source as CFURL, nil)
-        let kind: MediaKind = raw != nil ? .photo : type?.conforms(to: .movie) == true || ["mov", "mp4", "m4v"].contains(source.pathExtension.lowercased()) ? .video : .file
+        let isMovie = type?.conforms(to: .movie) == true || ["mov", "mp4", "m4v"].contains(source.pathExtension.lowercased())
+        // ImageIO can return an untyped source for a movie or arbitrary bytes.
+        // A non-nil source alone is not proof that the file contains an image.
+        let candidate = isMovie ? nil : CGImageSourceCreateWithURL(source as CFURL, nil)
+        let raw: CGImageSource? = candidate.flatMap { value in
+            guard CGImageSourceGetType(value) != nil, CGImageSourceGetCount(value) > 0 else { return nil }
+            return value
+        }
+        let kind: MediaKind = isMovie ? .video : raw != nil ? .photo : .file
         // Keep batches within a share extension's small memory budget. Originals stay on disk.
         let image = kind == .photo ? try PhotoFiles.thumbnail(source, maxPixels: 360) : PhotoFiles.placeholder(kind)
         let scaled = image
