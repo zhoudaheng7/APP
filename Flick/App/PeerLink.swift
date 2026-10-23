@@ -1,12 +1,15 @@
 import Foundation
 import UIKit
 import Combine
+import CryptoKit
 @preconcurrency import MultipeerConnectivity
 
 struct NearbyPhone: Identifiable {
     let peer: MCPeerID
     let name: String
     let code: String
+    let deviceID: String
+    let fingerprint: String
     var id: String { peer.displayName }
 }
 struct ConnectionRequest: Identifiable {
@@ -14,7 +17,7 @@ struct ConnectionRequest: Identifiable {
     let name: String
     let code: String
 }
-private struct InviteContext: Codable { let name: String; let code: String }
+private struct InviteContext: Codable { let name: String; let code: String; let deviceID: String; let fingerprint: String }
 
 final class PeerLink: NSObject, ObservableObject {
     @Published private(set) var nearby: [NearbyPhone] = []
@@ -23,9 +26,17 @@ final class PeerLink: NSObject, ObservableObject {
     @Published private(set) var peerAccepting = false
     @Published private(set) var isSending = false
     @Published private(set) var sendProgress: Double = 0
-    @Published private(set) var sendStatus = "选一张，分享这一刻"
+    @Published private(set) var sendStatus = "选中内容，分享这一刻"
     @Published private(set) var sendError = false
     @Published private(set) var outgoingStage: SendStage?
+    @Published private(set) var lastThrowSide: ThrowSide = .right
+    @Published private(set) var bearing: ThrowSide?
+    @Published private(set) var distance: Float?
+    @Published private(set) var bearingHint: String?
+    @Published private(set) var authenticated = false
+    @Published var autoReconnect = UserDefaults.standard.object(forKey: "flick.autoReconnect") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(autoReconnect, forKey: "flick.autoReconnect") }
+    }
     @Published private(set) var receivedPhoto: ReceivedPhoto?
     @Published private(set) var receiveProgress: Double = 0
     @Published private(set) var diagnostic: String?
@@ -34,6 +45,13 @@ final class PeerLink: NSObject, ObservableObject {
     let localName: String
     let code: String
     private let service = "flick-photo"
+    private let identity = LocalIdentity()
+    private let spatial = SpatialLocator()
+    private var localNonce = UUID().uuidString
+    private var remoteHello: WirePacket?
+    private var manuallyConfirmed = false
+    private var autoPendingID: String?
+    private var allowAutoInvite = true
     private let peerID: MCPeerID
     private var session: MCSession!
     private var browser: MCNearbyServiceBrowser?
@@ -55,25 +73,41 @@ final class PeerLink: NSObject, ObservableObject {
     private var connectionTimeout: DispatchWorkItem?
     private var running = false
     private let imageQueue = DispatchQueue(label: "flick.image-verification", qos: .userInitiated)
-    var connected: Bool { connectedPeer != nil }
+    var connected: Bool { connectedPeer != nil && authenticated }
+    private var isForeground: Bool {
+        #if APP_EXTENSION
+        return running
+        #else
+        return UIApplication.shared.applicationState == .active
+        #endif
+    }
 
     override init() {
-        let suffix = String(Int.random(in: 1000...9999))
+        let savedID = UserDefaults.standard.string(forKey: "flick.identity.id") ?? UUID().uuidString
+        UserDefaults.standard.set(savedID, forKey: "flick.identity.id")
+        let suffix = String(savedID.suffix(4))
         localName = "iPhone · " + suffix
         code = String(Int.random(in: 100000...999999))
         peerID = MCPeerID(displayName: "Flick-" + suffix + "-" + String(UUID().uuidString.prefix(6)))
         super.init()
         PhotoFiles.cleanupOldFiles()
+        #if APP_EXTENSION
+        accepting = false
+        #endif
+        spatial.changed = { [weak self] side, distance, hint in
+            self?.bearing = side; self?.distance = distance; self?.bearingHint = hint
+        }
         newSession()
     }
     private func newSession() {
+        localNonce = UUID().uuidString; remoteHello = nil; authenticated = false
         session = MCSession(peer: peerID, securityIdentity: nil, encryptionPreference: .required)
         session.delegate = self
     }
     func activate() {
         guard !running else { return }
-        running = true; diagnostic = nil
-        advertiser = MCNearbyServiceAdvertiser(peer: peerID, discoveryInfo: ["name": localName, "code": code, "v": "1"], serviceType: service)
+        running = true; diagnostic = nil; allowAutoInvite = true
+        advertiser = MCNearbyServiceAdvertiser(peer: peerID, discoveryInfo: ["name": localName, "code": code, "v": "2", "id": identity.deviceID, "key": identity.fingerprint], serviceType: service)
         advertiser?.delegate = self; advertiser?.startAdvertisingPeer()
         browser = MCNearbyServiceBrowser(peer: peerID, serviceType: service)
         browser?.delegate = self; browser?.startBrowsingForPeers()
@@ -85,8 +119,11 @@ final class PeerLink: NSObject, ObservableObject {
     }
     func connect(_ phone: NearbyPhone) {
         guard running, !connected, !connecting, invitationReply == nil else { return }
-        diagnostic = nil; expectedPeer = phone.peer; connecting = true
-        let context = try? JSONEncoder().encode(InviteContext(name: localName, code: code))
+        diagnostic = nil; expectedPeer = phone.peer; connecting = true; manuallyConfirmed = true; autoPendingID = nil; allowAutoInvite = true
+        invite(phone)
+    }
+    private func invite(_ phone: NearbyPhone) {
+        let context = try? JSONEncoder().encode(InviteContext(name: localName, code: code, deviceID: identity.deviceID, fingerprint: identity.fingerprint))
         browser?.invitePeer(phone.peer, to: session, withContext: context, timeout: 20)
         let job = DispatchWorkItem { [weak self] in
             guard let self = self, self.connecting else { return }
@@ -98,7 +135,12 @@ final class PeerLink: NSObject, ObservableObject {
     func answerInvitation(_ allow: Bool) {
         guard let reply = invitationReply else { invitation = nil; return }
         invitationReply = nil; invitation = nil
-        if allow { accepting = true; connecting = true }
+        if allow {
+            #if !APP_EXTENSION
+            accepting = true
+            #endif
+            connecting = true; manuallyConfirmed = true; autoPendingID = nil
+        }
         else { expectedPeer = nil }
         reply(allow, allow ? session : nil)
         if allow {
@@ -110,46 +152,69 @@ final class PeerLink: NSObject, ObservableObject {
             DispatchQueue.main.asyncAfter(deadline: .now() + 22, execute: job)
         }
     }
-    func disconnect(reason: String = "连接已断开，选中的照片仍保留。") {
+    func disconnect(reason: String = "连接已断开，选中的原文件仍保留。") {
+        allowAutoInvite = false; spatial.stop()
         connectionTimeout?.cancel(); connectionTimeout = nil
         invitationReply?(false, nil); invitationReply = nil; invitation = nil
         failOutgoing(reason, notify: false)
         cancelIncoming(reason, notify: false)
         session.disconnect(); session.delegate = nil
-        connectedPeer = nil; expectedPeer = nil; peerName = nil; peerAccepting = false; connecting = false
+        connectedPeer = nil; expectedPeer = nil; peerName = nil; peerAccepting = false; connecting = false; authenticated = false
         newSession(); sendStatus = reason
     }
+    func forgetDevices() { identity.forget(); disconnect(reason: "已忘记配对设备。下次连接需要重新确认。"); allowAutoInvite = true }
+    func retryDiscovery() {
+        allowAutoInvite = true
+        for phone in nearby { scheduleAutoConnect(phone) }
+    }
     func setAccepting(_ value: Bool) {
+        #if APP_EXTENSION
+        accepting = false
+        #else
         accepting = value
-        if !value { cancelIncoming("接收已暂停，原图未接收完成。", notify: true) }
+        if !value { cancelIncoming("接收已暂停，原文件未接收完成。", notify: true) }
+        #endif
         sendHello()
     }
     func note(_ text: String, error: Bool = false) { sendStatus = text; sendError = error }
     func send(_ asset: PhotoAsset, side: ThrowSide) {
         guard connected else { note("先连接附近的另一台 iPhone。", error: true); return }
-        guard peerAccepting else { note("对方已暂停接收，照片留在这里。", error: true); return }
-        guard running, UIApplication.shared.applicationState == .active, !isSending, incomingOffer == nil else {
+        guard peerAccepting else { note("对方已暂停接收，原文件留在这里。", error: true); return }
+        guard running, isForeground, !isSending, incomingOffer == nil else {
             note("请等待当前传输完成。", error: true); return
         }
         let offer = asset.offer(side: side)
         transaction = SendTransaction(offer: offer); outboundPhoto = asset
-        isSending = true; sendError = false; sendProgress = 0; outgoingStage = .awaitingPreview
+        isSending = true; sendError = false; sendProgress = 0; lastThrowSide = side; outgoingStage = .awaitingPreview
         sendStatus = "正在准备甩给 \(peerName ?? "对方")…"
         do {
             try sendPacket(WirePacket(.offer, id: offer.id, offer: offer, preview: asset.previewData))
-            armSendTimeout(25, id: offer.id, reason: "对方没有准备好，照片仍保留，可以重试。")
+            armSendTimeout(25, id: offer.id, reason: "对方没有准备好，原文件仍保留，可以重试。")
         } catch { failOutgoing("发送准备失败：\(error.localizedDescription)") }
     }
     func previewPresented(id: UUID) {
         guard let offer = incomingOffer, offer.id == id, accepting, connected, !presentedIDs.contains(id),
-              UIApplication.shared.applicationState == .active else { return }
+              isForeground else { return }
         presentedIDs.insert(id)
         do {
             try sendPacket(WirePacket(.ready, id: id))
             try sendPacket(WirePacket(.presented, id: id))
-        } catch { cancelIncoming("连接中断，原图未接收完成。", notify: false) }
+        } catch { cancelIncoming("连接中断，原文件未接收完成。", notify: false) }
     }
-    private func sendHello() { try? sendPacket(WirePacket(.hello, accepting: accepting, name: localName)) }
+    private func sendHello() {
+        var packet = WirePacket(.hello, accepting: accepting, name: localName)
+        packet.deviceID = identity.deviceID; packet.publicKey = identity.publicKey; packet.nonce = localNonce; packet.nearbyToken = spatial.tokenData
+        try? sendPacket(packet)
+    }
+    private func scheduleAutoConnect(_ phone: NearbyPhone) {
+        guard autoReconnect, allowAutoInvite, identity.trustedKey(for: phone.deviceID) != nil else { return }
+        let delay = identity.deviceID < phone.deviceID ? 0.4 : 1.8
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            guard let self = self, self.running, self.autoReconnect, self.allowAutoInvite, self.connectedPeer == nil, !self.connecting, self.invitationReply == nil else { return }
+            self.expectedPeer = phone.peer; self.connecting = true; self.manuallyConfirmed = false; self.autoPendingID = phone.deviceID
+            self.invite(phone)
+        }
+    }
     private func sendPacket(_ packet: WirePacket) throws {
         guard let peer = connectedPeer else { throw NSError(domain: "Flick", code: 1, userInfo: [NSLocalizedDescriptionKey: "尚未连接设备"] ) }
         let data = try JSONEncoder().encode(packet)
@@ -157,54 +222,73 @@ final class PeerLink: NSObject, ObservableObject {
         try session.send(data, toPeers: [peer], with: .reliable)
     }
     private func handle(_ packet: WirePacket, peer: MCPeerID) {
-        guard packet.version == 1, peer == connectedPeer else { return }
+        guard packet.version == 2, peer == connectedPeer else { return }
+        if packet.kind != .hello && packet.kind != .proof && !authenticated { return }
         switch packet.kind {
         case .hello:
+            guard let id = packet.deviceID, let key = packet.publicKey, key.count == 64, let nonce = packet.nonce, nonce.count == 36 else { disconnect(reason: "设备核对失败，请重新配对。"); return }
+            if let expected = autoPendingID, expected != id { disconnect(reason: "设备身份不匹配，请重新配对。"); return }
+            if let known = identity.trustedKey(for: id), known != key { disconnect(reason: "设备身份已变化，请先忘记配对再重新连接。"); return }
+            guard manuallyConfirmed || identity.trustedKey(for: id) == key else { disconnect(reason: "需要先确认这台设备。"); return }
+            remoteHello = packet
+            var proof = WirePacket(.proof); proof.nonce = localNonce
+            proof.signature = try? identity.key.signature(for: IdentityProof.message(challenge: nonce, responderNonce: localNonce)).rawRepresentation
+            try? sendPacket(proof)
             peerAccepting = packet.accepting ?? false
             if let name = packet.name, !name.isEmpty { peerName = String(name.prefix(40)) }
-            if !peerAccepting && isSending { failOutgoing("对方暂停了接收，照片仍保留。") }
+            if !peerAccepting && isSending { failOutgoing("对方暂停了接收，原文件仍保留。") }
+            if authenticated, let data = packet.nearbyToken { spatial.run(peerToken: data) }
+        case .proof:
+            guard let hello = remoteHello, let key = hello.publicKey, let id = hello.deviceID, let nonce = hello.nonce,
+                  packet.nonce == nonce, let signature = packet.signature,
+                  IdentityProof.verify(key: key, signature: signature, challenge: localNonce, responderNonce: nonce) else { disconnect(reason: "设备验证未通过，请重新配对。"); return }
+            if !authenticated {
+                identity.remember(id: id, key: key); authenticated = true; connecting = false; connectionTimeout?.cancel()
+                sendStatus = "连接好了，上下左右都可以甩出。"; sendError = false
+                if let data = hello.nearbyToken { spatial.run(peerToken: data) }
+            }
         case .offer:
             guard let offer = packet.offer, packet.id == offer.id, offer.isValid,
                   let data = packet.preview, data.count <= FlickRules.maxPreviewBytes,
-                  let preview = UIImage(data: data) else { reject(packet.id, "照片格式或大小不受支持。"); return }
-            guard !recentIDs.contains(offer.id) else { reject(offer.id, "该照片投送已处理，请重新发送。"); return }
-            guard accepting, running, UIApplication.shared.applicationState == .active else { reject(offer.id, "接收方已暂停接收。"); return }
-            guard incomingOffer == nil, !isSending else { reject(offer.id, "对方正在传图，请稍后再甩。"); return }
+                  let preview = UIImage(data: data) else { reject(packet.id, "文件格式或大小不受支持。"); return }
+            guard !recentIDs.contains(offer.id) else { reject(offer.id, "该次投送已处理，请重新发送。"); return }
+            guard accepting, running, isForeground else { reject(offer.id, "接收方已暂停接收。"); return }
+            guard incomingOffer == nil, !isSending else { reject(offer.id, "对方正在传输，请稍后再甩。"); return }
             incomingOffer = offer; receiveProgress = 0
-            receivedPhoto = ReceivedPhoto(id: offer.id, offer: offer, sender: peerName ?? "朋友", image: preview)
+            receivedPhoto = ReceivedPhoto(id: offer.id, offer: offer, sender: peerName ?? "朋友", entrySide: bearing ?? offer.side.opposite, image: preview)
             let job = DispatchWorkItem { [weak self] in
                 guard self?.incomingOffer?.id == offer.id else { return }
-                self?.cancelIncoming("原图接收超时，请让对方重试。", notify: true)
+                self?.cancelIncoming("原文件接收超时，请让对方重试。", notify: true)
             }
             receiveTimeout?.cancel(); receiveTimeout = job
-            DispatchQueue.main.asyncAfter(deadline: .now() + 120, execute: job)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 120 + Double(offer.byteCount) / (200 * 1024), execute: job)
         case .ready:
             guard let id = packet.id, transaction?.ready(id: id) == true, let asset = outboundPhoto, let offer = transaction?.offer else { return }
-            outgoingStage = .transferring; sendStatus = "照片已飞过去 · 原图传输中"
+            outgoingStage = .transferring; sendStatus = "内容已飞过去 · 原文件传输中"
             timeout?.cancel()
             resourceProgress = session.sendResource(at: asset.url, withName: offer.resourceName, toPeer: peer) { [weak self] error in
                 DispatchQueue.main.async {
                     guard let self = self, self.transaction?.offer.id == id, self.isSending else { return }
-                    if let error = error { self.failOutgoing("原图传输失败：\(error.localizedDescription)") }
+                    if let error = error { self.failOutgoing("原文件传输失败：\(error.localizedDescription)") }
                 }
             }
-            guard let progress = resourceProgress else { failOutgoing("原图无法开始传输，请重试。"); return }
+            guard let progress = resourceProgress else { failOutgoing("原文件无法开始传输，请重试。"); return }
             progressObservation = progress.observe(\.fractionCompleted, options: [.initial, .new]) { [weak self] value, _ in
                 DispatchQueue.main.async { if self?.transaction?.offer.id == id { self?.sendProgress = value.fractionCompleted } }
             }
-            armSendTimeout(120, id: id, reason: "原图传输超时，照片仍保留，可以重试。")
+            armSendTimeout(120 + Double(offer.byteCount) / (200 * 1024), id: id, reason: "原文件传输超时，文件仍保留，可以重试。")
         case .presented:
             guard let id = packet.id else { return }
             transaction?.presented(id: id)
-            if transaction?.offer.id == id, isSending { sendStatus = "对方已展开 · 原图传输中" }
+            if transaction?.offer.id == id, isSending { sendStatus = "对方已展开 · 原文件传输中" }
         case .received:
             guard let id = packet.id, transaction?.received(id: id) == true else { return }
             timeout?.cancel(); progressObservation = nil; resourceProgress = nil
             isSending = false; sendProgress = 1; outgoingStage = .delivered; sendError = false
-            sendStatus = "已送达 · 原图已确认"; outboundPhoto = nil
+            sendStatus = "已送达 · 原文件已确认"; outboundPhoto = nil
             UINotificationFeedbackGenerator().notificationOccurred(.success)
         case .cancel, .reject:
-            if let id = packet.id, id == transaction?.offer.id, isSending { failOutgoing(packet.reason ?? "对方取消了接收，照片仍保留。", notify: false) }
+            if let id = packet.id, id == transaction?.offer.id, isSending { failOutgoing(packet.reason ?? "对方取消了接收，原文件仍保留。", notify: false) }
             if let id = packet.id, id == incomingOffer?.id { cancelIncoming(packet.reason ?? "发送方已取消。", notify: false) }
         }
     }
@@ -233,11 +317,16 @@ final class PeerLink: NSObject, ObservableObject {
     }
     private func finishResource(_ url: URL, name: String, peer: MCPeerID, currentSession: MCSession) {
         guard currentSession === session, peer == connectedPeer, let offer = incomingOffer, name == offer.resourceName else { try? FileManager.default.removeItem(at: url); return }
+        let folder = PhotoFiles.directory.appendingPathComponent(offer.id.uuidString, isDirectory: true)
+        let finalURL = folder.appendingPathComponent(offer.filename)
+        do { try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true); try FileManager.default.moveItem(at: url, to: finalURL) }
+        catch { cancelIncoming("无法保存原文件，请重试。", notify: true); return }
+        let url = finalURL
         imageQueue.async { [weak self] in
             let result: Result<UIImage, Error> = Result {
                 let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
                 guard size == offer.byteCount, try PhotoFiles.digest(url) == offer.sha256 else { throw PhotoFailure.invalid }
-                return try PhotoFiles.thumbnail(url)
+                return try PhotoFiles.preview(url, kind: offer.kind)
             }
             DispatchQueue.main.async {
                 guard let self = self, self.session === currentSession, self.incomingOffer?.id == offer.id, self.accepting else { try? FileManager.default.removeItem(at: url); return }
@@ -251,7 +340,7 @@ final class PeerLink: NSObject, ObservableObject {
                     UINotificationFeedbackGenerator().notificationOccurred(.success)
                 case .failure:
                     try? FileManager.default.removeItem(at: url)
-                    self.cancelIncoming("原图校验未通过，请让对方重新发送。", notify: true)
+                    self.cancelIncoming("原文件校验未通过，请让对方重新发送。", notify: true)
                 }
             }
         }
@@ -261,9 +350,10 @@ final class PeerLink: NSObject, ObservableObject {
 extension PeerLink: MCNearbyServiceBrowserDelegate {
     func browser(_ browser: MCNearbyServiceBrowser, foundPeer peerID: MCPeerID, withDiscoveryInfo info: [String: String]?) {
         DispatchQueue.main.async { [weak self] in
-            guard let self = self, browser === self.browser, info?["v"] == "1" else { return }
+            guard let self = self, browser === self.browser, info?["v"] == "2", let id = info?["id"], let fingerprint = info?["key"] else { return }
             self.nearby.removeAll { $0.peer == peerID }
-            self.nearby.append(NearbyPhone(peer: peerID, name: String((info?["name"] ?? "附近的 iPhone").prefix(40)), code: String((info?["code"] ?? "------").prefix(6))))
+            let phone = NearbyPhone(peer: peerID, name: String((info?["name"] ?? "附近的 iPhone").prefix(40)), code: String((info?["code"] ?? "------").prefix(6)), deviceID: id, fingerprint: fingerprint)
+            self.nearby.append(phone); self.scheduleAutoConnect(phone)
         }
     }
     func browser(_ browser: MCNearbyServiceBrowser, lostPeer peerID: MCPeerID) {
@@ -279,9 +369,13 @@ extension PeerLink: MCNearbyServiceBrowserDelegate {
 extension PeerLink: MCNearbyServiceAdvertiserDelegate {
     func advertiser(_ advertiser: MCNearbyServiceAdvertiser, didReceiveInvitationFromPeer peerID: MCPeerID, withContext context: Data?, invitationHandler: @escaping (Bool, MCSession?) -> Void) {
         DispatchQueue.main.async { [weak self] in
-            guard let self = self, advertiser === self.advertiser, self.running, !self.connected, !self.connecting, self.invitationReply == nil,
+            guard let self = self, advertiser === self.advertiser, self.running, self.connectedPeer == nil, !self.connecting, self.invitationReply == nil,
                   let context = context, context.count < 2048, let invite = try? JSONDecoder().decode(InviteContext.self, from: context) else { invitationHandler(false, nil); return }
             self.expectedPeer = peerID; self.invitationReply = invitationHandler
+            if self.autoReconnect, self.allowAutoInvite, let key = self.identity.trustedKey(for: invite.deviceID), SHA256.hash(data: key).map({ String(format: "%02x", $0) }).joined() == invite.fingerprint {
+                self.manuallyConfirmed = false; self.autoPendingID = invite.deviceID; self.connecting = true; self.invitationReply = nil
+                invitationHandler(true, self.session); return
+            }
             self.invitation = ConnectionRequest(name: String(invite.name.prefix(40)), code: String(invite.code.prefix(6)))
         }
     }
@@ -296,11 +390,26 @@ extension PeerLink: MCSessionDelegate {
             switch state {
             case .connected:
                 guard self.connectedPeer == nil, self.expectedPeer == peerID else { self.disconnect(reason: "连接对象已变化，请重新确认。"); return }
-                self.connectedPeer = peerID; self.connecting = false; self.connectionTimeout?.cancel()
+                self.connectedPeer = peerID; self.connecting = true
                 self.peerName = self.nearby.first(where: { $0.peer == peerID })?.name ?? self.invitation?.name ?? "另一台 iPhone"
-                self.sendStatus = "连接好了，向朋友甩出照片吧。"; self.sendError = false; self.sendHello()
+                self.sendStatus = "正在核对已连接设备…"; self.sendError = false; self.sendHello()
+                let job = DispatchWorkItem { [weak self] in
+                    guard let self = self, self.session === session, !self.authenticated else { return }
+                    self.disconnect(reason: "设备核对超时，请重新连接。")
+                }
+                self.connectionTimeout?.cancel(); self.connectionTimeout = job
+                DispatchQueue.main.asyncAfter(deadline: .now() + 20, execute: job)
             case .notConnected:
-                if self.connectedPeer == peerID || self.expectedPeer == peerID { self.disconnect(reason: "对方已断开连接，照片仍保留。") }
+                if self.connectedPeer == peerID || self.expectedPeer == peerID {
+                    let retry = self.authenticated && self.autoReconnect && self.running
+                    self.disconnect(reason: "对方已断开连接，原文件仍保留。")
+                    if retry {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+                            guard let self = self, self.running, !self.connected, !self.connecting else { return }
+                            self.retryDiscovery()
+                        }
+                    }
+                }
             case .connecting: self.connecting = true
             @unknown default: break
             }
@@ -321,18 +430,18 @@ extension PeerLink: MCSessionDelegate {
     }
     func session(_ session: MCSession, didFinishReceivingResourceWithName resourceName: String, fromPeer peerID: MCPeerID, at localURL: URL?, withError error: Error?) {
         guard error == nil, let source = localURL else {
-            DispatchQueue.main.async { [weak self] in if session === self?.session, self?.incomingOffer?.resourceName == resourceName { self?.cancelIncoming("原图传输中断，请重新发送。", notify: true) } }; return
+            DispatchQueue.main.async { [weak self] in if session === self?.session, self?.incomingOffer?.resourceName == resourceName { self?.cancelIncoming("原文件传输中断，请重新发送。", notify: true) } }; return
         }
         do {
             let bytes = try source.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
             guard bytes > 0, bytes <= FlickRules.maxFileBytes else { throw PhotoFailure.tooLarge }
             let suffix = URL(fileURLWithPath: resourceName).pathExtension
-            guard suffix.count <= 8, suffix.allSatisfy({ $0.isLetter }) else { throw PhotoFailure.invalid }
+            guard suffix.count <= 16, suffix.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber) }) else { throw PhotoFailure.invalid }
             let copy = PhotoFiles.directory.appendingPathComponent("received-\(UUID().uuidString).\(suffix)")
             try FileManager.default.copyItem(at: source, to: copy)
             DispatchQueue.main.async { [weak self] in self?.finishResource(copy, name: resourceName, peer: peerID, currentSession: session) }
         } catch {
-            DispatchQueue.main.async { [weak self] in if session === self?.session, self?.incomingOffer?.resourceName == resourceName { self?.cancelIncoming("无法读取收到的原图，请重试。", notify: true) } }
+            DispatchQueue.main.async { [weak self] in if session === self?.session, self?.incomingOffer?.resourceName == resourceName { self?.cancelIncoming("无法读取收到的原文件，请重试。", notify: true) } }
         }
     }
     func session(_ session: MCSession, didReceive stream: InputStream, withName streamName: String, fromPeer peerID: MCPeerID) { stream.close() }

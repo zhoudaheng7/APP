@@ -8,8 +8,8 @@ settings:
     SWIFT_VERSION: '5.0'
     SWIFT_STRICT_CONCURRENCY: minimal
     TARGETED_DEVICE_FAMILY: '1'
-    MARKETING_VERSION: '0.1.0'
-    CURRENT_PROJECT_VERSION: '1'
+    MARKETING_VERSION: '0.2.0'
+    CURRENT_PROJECT_VERSION: '2'
     CODE_SIGNING_ALLOWED: NO
     GENERATE_INFOPLIST_FILE: NO
     ENABLE_USER_SCRIPT_SANDBOXING: YES
@@ -18,15 +18,22 @@ targets:
     type: application
     platform: iOS
     sources: [App, Core]
+    dependencies:
+      - target: FlickShare
+        embed: true
     info:
       path: App/Info.plist
       properties:
         CFBundleDisplayName: 一甩
-        NSLocalNetworkUsageDescription: 在你确认连接后，发现附近的一甩设备并直接传送照片。
+        NSLocalNetworkUsageDescription: 发现附近已确认的一甩设备，直接传送照片、视频和文件。
         NSBonjourServices: ['_flick-photo._tcp', '_flick-photo._udp']
-        NSBluetoothAlwaysUsageDescription: 与附近已确认的一甩设备建立传图连接。
+        NSBluetoothAlwaysUsageDescription: 与附近已确认的一甩设备建立传输连接。
+        NSNearbyInteractionUsageDescription: 显示已连接 iPhone 的真实方向和距离，让你向朋友的方位甩送。
         NSPhotoLibraryAddUsageDescription: 只有在你点击保存时，才把收到的照片保存到系统相册。
         UILaunchScreen: {}
+        CFBundleURLTypes:
+          - CFBundleURLName: com.zhoudaheng7.Flick.receive
+            CFBundleURLSchemes: [flick]
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
     settings:
       base:
@@ -35,6 +42,34 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         SUPPORTS_MACCATALYST: NO
         SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD: NO
+  FlickShare:
+    type: app-extension
+    platform: iOS
+    sources: [ShareExtension, Core, App/PeerLink.swift, App/PhotoAsset.swift, App/FlickViews.swift, App/SpatialLocator.swift, App/LocalIdentity.swift]
+    info:
+      path: ShareExtension/Info.plist
+      properties:
+        CFBundleDisplayName: 一甩
+        NSLocalNetworkUsageDescription: 在分享窗口直接连接已确认设备，传送原文件。
+        NSBonjourServices: ['_flick-photo._tcp', '_flick-photo._udp']
+        NSBluetoothAlwaysUsageDescription: 发现附近已确认的一甩设备。
+        NSNearbyInteractionUsageDescription: 在分享窗口显示已连接 iPhone 的方向和距离。
+        NSPhotoLibraryAddUsageDescription: 由你选择是否把收到的内容存入照片。
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.share-services
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
+          NSExtensionAttributes:
+            NSExtensionActivationRule:
+              NSExtensionActivationSupportsImageWithMaxCount: 1
+              NSExtensionActivationSupportsMovieWithMaxCount: 1
+              NSExtensionActivationSupportsFileWithMaxCount: 1
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.zhoudaheng7.Flick.Share
+        TARGETED_DEVICE_FAMILY: '1'
+        APPLICATION_EXTENSION_API_ONLY: YES
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: '$(inherited) APP_EXTENSION'
+        SKIP_INSTALL: YES
 schemes:
   Flick:
     build:

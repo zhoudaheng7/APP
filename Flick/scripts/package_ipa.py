@@ -25,6 +25,20 @@ assert info.get('UIDeviceFamily') == [1]
 assert float(info['MinimumOSVersion']) >= 26
 assert not info.get('UIDesignRequiresCompatibility', False)
 assert 'NSLocalNetworkUsageDescription' in info and '_flick-photo._tcp' in info['NSBonjourServices']
+assert info['NSNearbyInteractionUsageDescription']
+assert info['CFBundleDisplayName'] == '\u4e00\u7529'
+assert info['CFBundleShortVersionString'] == '0.2.0'
+extensions = list((app / 'PlugIns').glob('*.appex'))
+assert len(extensions) == 1, 'Expected embedded native share extension'
+extension_info = plistlib.loads((extensions[0] / 'Info.plist').read_bytes())
+extension_executable = extensions[0] / extension_info['CFBundleExecutable']
+extension_binary = extension_executable.read_bytes()
+ext_magic, ext_cpu = struct.unpack_from('<II', extension_binary)
+assert ext_magic == 0xFEEDFACF and ext_cpu == 0x0100000C
+assert extension_info['NSExtension']['NSExtensionPointIdentifier'] == 'com.apple.share-services'
+assert extension_info['CFBundleShortVersionString'] == info['CFBundleShortVersionString']
+assert extension_info['UIDeviceFamily'] == [1]
+executables = {executable, extension_executable}
 assert not list(app.rglob('*.p12')) and not list(app.rglob('*.mobileprovision'))
 destination.parent.mkdir(parents=True, exist_ok=True)
 with zipfile.ZipFile(destination, 'w', zipfile.ZIP_DEFLATED) as archive:
@@ -32,9 +46,9 @@ with zipfile.ZipFile(destination, 'w', zipfile.ZIP_DEFLATED) as archive:
         if path.is_file():
             entry = zipfile.ZipInfo('Payload/' + app.name + '/' + path.relative_to(app).as_posix())
             entry.create_system = 3
-            entry.external_attr = (0o100755 if path == executable else 0o100644) << 16
+            entry.external_attr = (0o100755 if path in executables else 0o100644) << 16
             entry.compress_type = zipfile.ZIP_DEFLATED
             archive.writestr(entry, path.read_bytes())
-report = {'file': destination.name, 'bundle_id': info['CFBundleIdentifier'], 'minimum_iOS': info['MinimumOSVersion'], 'sdk': info.get('DTSDKName'), 'arm64': True, 'platform': 'iPhoneOS', 'signed': False}
+report = {'file': destination.name, 'bundle_id': info['CFBundleIdentifier'], 'minimum_iOS': info['MinimumOSVersion'], 'sdk': info.get('DTSDKName'), 'arm64': True, 'platform': 'iPhoneOS', 'share_extension': extension_info['CFBundleIdentifier'], 'signed': False}
 (destination.parent / 'build-verification.json').write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
 print(json.dumps(report, ensure_ascii=False))
