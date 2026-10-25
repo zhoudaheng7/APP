@@ -1,0 +1,26 @@
+{
+  "file": "WeChatAssist-0.1.0-unsigned.ipa",
+  "bytes": 172587,
+  "sha256": "953268ffb050b955bcc4cc4dc7205ba955e80e8c8b3c8eb42fd81717f6859c61",
+  "bundle_id": "com.personal.chatassist.WeChatAssist",
+  "platform": "iPhoneOS",
+  "architecture": "arm64",
+  "minimum_ios": "17.0",
+  "version": "0.1.0",
+  "signature": "unsigned - must be re-signed before installation",
+  "compile_result": "BUILD SUCCEEDED",
+  "run_url": "https://github.com/zhoudaheng7/APP/actions/runs/40170001942",
+  "source_commit": "7fb0a1b6d1bf3fdee50f03206093fcb1b6afb785",
+  "remote_and_local_sha256_match": true,
+  "executable_permission_preserved": true,
+  "xcode_version": "2660",
+  "sdk": "iphoneos26.5",
+  "device_family": [
+    1
+  ],
+  "not_verified": [
+    "user signing and installation",
+    "physical iPhone runtime",
+    "live WeChat capture and real AI provider"
+  ]
+}

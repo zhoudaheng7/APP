@@ -1,7 +1,7 @@
 {
   "date": "2026-10-25",
   "version": "0.1.0",
-  "status": "development source and interactive design; not a signed IPA",
+  "status": "unsigned iPhoneOS 0.1.0 IPA compiled and verified; signing and physical-device tests pending",
   "current_wechat_version": "4.1.15.56",
   "passed": {
     "backend_tests": 17,
@@ -59,20 +59,46 @@
       ]
     },
     "automated_tests_total": 20,
-    "ipa_format_validator_tests": 3
+    "ipa_format_validator_tests": 3,
+    "device_ipa": {
+      "file": "WeChatAssist-0.1.0-unsigned.ipa",
+      "bytes": 172587,
+      "sha256": "953268ffb050b955bcc4cc4dc7205ba955e80e8c8b3c8eb42fd81717f6859c61",
+      "bundle_id": "com.personal.chatassist.WeChatAssist",
+      "platform": "iPhoneOS",
+      "architecture": "arm64",
+      "minimum_ios": "17.0",
+      "version": "0.1.0",
+      "signature": "unsigned - must be re-signed before installation",
+      "compile_result": "BUILD SUCCEEDED",
+      "run_url": "https://github.com/zhoudaheng7/APP/actions/runs/40170001942",
+      "source_commit": "7fb0a1b6d1bf3fdee50f03206093fcb1b6afb785",
+      "remote_and_local_sha256_match": true,
+      "executable_permission_preserved": true,
+      "xcode_version": "2660",
+      "sdk": "iphoneos26.5",
+      "device_family": [
+        1
+      ],
+      "not_verified": [
+        "user signing and installation",
+        "physical iPhone runtime",
+        "live WeChat capture and real AI provider"
+      ]
+    }
   },
   "not_verified": [
     "continuous capture from real WeChat",
     "real model provider",
     "physical iPhone connection",
-    "iOS compilation",
     "IPA signing and installation"
   ],
   "data": "No real chat content, model keys, pairing tokens, or runtime data are included in this package.",
   "cloud_build": {
-    "status": "prepared locally, awaiting repository authorization",
-    "output_target": "unsigned arm64 iPhoneOS IPA for local re-signing",
-    "workflow": ".github/workflows/wechat-assist-ipa.yml",
-    "not_yet_run": true
+    "status": "success",
+    "run_url": "https://github.com/zhoudaheng7/APP/actions/runs/40170001942",
+    "source_commit": "7fb0a1b6d1bf3fdee50f03206093fcb1b6afb785",
+    "run_id": 40170001942,
+    "not_yet_run": false
   }
 }

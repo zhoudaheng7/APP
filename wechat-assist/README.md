@@ -4,9 +4,9 @@
 
 ## 当前交付状态
 
-- 已提供：Windows 服务、区域选择与 OCR 采集源码、电脑工作台、iPhone SwiftUI 工程、离线交互预览、自动检查与 macOS 编译工作流。
-- 已验证：本机微信版本 4.1.15.56 的可访问性接口没有返回消息正文；本地 Windows OCR 能识别合成中文聊天图片；20 项自动检查通过（含 17 项后端检查及 3 项 IPA 格式校验检查）；Edge 下 1440/1024/850/390/320 宽度无横向溢出；本机 HTTP 工作台到模拟模型、HTTPS 手机接口联通检查通过。
-- 尚未验证：真实微信持续截取和切换聊天保护的端到端运行、真实模型服务、iPhone 真机局域网通信、iOS 编译和签名。**此交付没有可安装 IPA。**
+- 已提供：Windows 服务、区域选择与 OCR 采集源码、电脑工作台、iPhone SwiftUI 工程、待自签真机 IPA、离线交互预览、自动检查与 macOS 编译工作流。
+- 已验证：本机微信版本 4.1.15.56 的可访问性接口没有返回消息正文；本地 Windows OCR 能识别合成中文聊天图片；20 项自动检查通过（含 17 项后端检查及 3 项 IPA 格式校验检查）；Edge 下 1440/1024/850/390/320 宽度无横向溢出；本机 HTTP 工作台到模拟模型、HTTPS 手机接口联通检查通过；GitHub 云端 iPhoneOS 编译成功，IPA 的 arm64 架构、0.1.0 版本、iOS 17.0 最低版本和文件哈希已复核。
+- 尚未验证：真实微信持续截取和切换聊天保护的端到端运行、真实模型服务、iPhone 真机局域网通信、用户签名和安装。**此交付包含待自签 IPA，需要你使用自己的工具签名后安装。**
 - 离线预览中的人物、聊天和生成回复全部为虚构示例。预览不连接微信，不调用 AI。
 
 ## 能力与使用条件
@@ -25,7 +25,7 @@
 
 需要 Windows 10/11、带中文识别能力的 Windows OCR、Python 3.11+。解压到普通用户目录即可；不需要修改微信文件或管理员权限。
 
-在本目录运行：
+推荐直接双击 `Start-Windows.cmd`，会启用 iPhone 配对接口并打开工作台。也可以在本目录运行：
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Start-Windows.ps1
@@ -37,7 +37,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Start-Windows.ps1
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Start-Windows.ps1 -Phone
 ```
 
-脚本会在本目录建立 `.venv` 并安装 `cryptography`。若系统的 `python` 只是 Microsoft Store 占位程序，先安装 Python 并加入 PATH。上述参数只对本次进程生效，不修改全局执行策略。
+脚本优先使用目录中的虚拟环境、PATH 中的 Python 或本机已安装的 Codex Python 运行时；缺少依赖时会在本目录建立 `.venv` 并安装 `cryptography`。若未找到有效 Python，先安装 Python 3.11+ 并加入 PATH。上述参数只对本次进程生效，不修改全局执行策略。
 
 工作台仅绑定 `127.0.0.1:8765`。`-Phone` 额外开启局域网 HTTPS 8766 端口。工具不会修改防火墙；如果系统询问网络访问权限，由你按自己的网络条件决定。不要做公网端口映射。
 
@@ -53,7 +53,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Start-Windows.ps1 -Pho
 
 ## iPhone 编译、安装与配对
 
-本机是 Windows，没有 Xcode。`ios/` 包含原生 SwiftUI 工程源代码与 XcodeGen 配置，**未编译，不能把源码压缩包当作 IPA 安装。**
+本机是 Windows，已通过 GitHub 云端 Mac 编译出 `WeChatAssist-0.1.0-unsigned.ipa`，最低支持 iOS 17.0。使用你已有的自签工具导入该 IPA、签名并安装。`ios/` 提供相应原生 SwiftUI 源码与 XcodeGen 配置；源码压缩包不能当作 IPA 安装。
 
 在 Mac 上安装 Xcode 和 XcodeGen 后：
 
@@ -65,7 +65,7 @@ open WeChatAssist.xcodeproj
 
 在 Xcode 中设置自己的 Bundle ID 和签名 Team，连接 iPhone 后编译安装。iOS 最低版本 17.0。用于安装的 IPA 需要相应证书与描述文件；不需要在聊天里提供 Apple ID 密码、私钥或证书口令。详见 [Apple 真机分发说明](https://developer.apple.com/documentation/xcode/distributing-your-app-to-registered-devices)。
 
-仓库中的 `.github/workflows/ios-build.yml` 可在你选择的 GitHub 仓库中手动运行 macOS 模拟器编译检查。它尚未运行，只产出模拟器 App，不生成可安装 IPA，不含任何签名凭据。
+工程还提供 `.github/workflows/ios-build.yml` 作为可选模拟器编译检查。本次真机 IPA 由 `wechat-assist-ipa.yml` 工作流生成，没有向云端提供任何 Apple 签名凭据。
 
 ### 没有 Mac，但已有自签工具
 
@@ -73,7 +73,7 @@ open WeChatAssist.xcodeproj
 
 它支持把工程独立放在仓库的 `wechat-assist/` 子目录，或将本工程作为独立仓库使用。指定的 `codex/wechat-assist*` 分支推送可触发编译；也支持在工作流可手动触发时运行。工作流输出包含待自签 IPA、格式检查报告和编译日志，保留 7 天。
 
-目前流程仅在本地准备完毕，**尚未上传或执行云端编译，也没有生成 IPA**。需要先确定可使用的仓库。公开仓库会公开上传的源码，因此上传前需要用户明确选择公开仓库或授权私有仓库。
+已按你的授权上传到公开仓库 `zhoudaheng7/APP` 的 `codex/wechat-assist` 独立分支。云端构建 [40170001942](https://github.com/zhoudaheng7/APP/actions/runs/40170001942) 成功；IPA 对应提交 `7fb0a1b6d1bf3fdee50f03206093fcb1b6afb785`。签名与 iPhone 真机运行尚未验证。
 
 编译完成后的包会交由你的现有自签工具签名安装。具体签名步骤取决于你使用的工具。签名成功仍需在真实 iPhone 验证启动、配对和网络访问。已有签名工具不会赋予 App 读取微信数据库或后台监听微信的权限。
 

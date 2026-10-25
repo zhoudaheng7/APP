@@ -13,7 +13,7 @@ foreach ($candidate in $candidates) {
     if ($LASTEXITCODE -eq 0) { $runtimePython = $candidate; break }
 }
 if (-not $runtimePython) { throw '未找到 Python 3.11+。请安装 Python 并启用 PATH，再重新运行。' }
-& $runtimePython -c "import cryptography" 2>$null
+& $runtimePython -c "import importlib.util,sys; sys.exit(0 if importlib.util.find_spec('cryptography') else 1)"
 if ($LASTEXITCODE -ne 0) {
     Write-Host '首次运行将在工具目录内建立虚拟环境并安装必要组件。'
     if ($runtimePython -ne $venvPython) {
