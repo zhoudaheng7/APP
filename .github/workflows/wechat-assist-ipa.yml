@@ -75,7 +75,8 @@ jobs:
             artifacts/WeChatAssist-unsigned.ipa
           python3 "$IOS_DIR/scripts/validate_ipa.py" \
             artifacts/WeChatAssist-unsigned.ipa \
-            --report artifacts/ipa-validation.json
+            --report artifacts/ipa-validation.json \
+            --expected-version 0.1.0
           echo '待自签 IPA；需要用户在自己的签名工具内签名后安装。未进行真机验证。' > artifacts/INSTALL-STATUS.txt
       - name: Upload IPA, validation report and compile log
         if: always()

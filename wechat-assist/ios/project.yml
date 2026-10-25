@@ -18,6 +18,8 @@ targets:
       path: WeChatAssist/Info.plist
       properties:
         CFBundleDisplayName: 知会
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UILaunchScreen: {}
         UIApplicationSupportsIndirectInputEvents: true
         NSLocalNetworkUsageDescription: 连接你的 Windows 助手，同步你选定聊天的识别文字和回复草稿。
@@ -29,6 +31,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.personal.chatassist.WeChatAssist
         CODE_SIGN_STYLE: Automatic
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        TARGETED_DEVICE_FAMILY: '1'
 schemes:
   WeChatAssist:
     build:

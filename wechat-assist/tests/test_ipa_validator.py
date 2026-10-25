@@ -18,6 +18,7 @@ class ValidatorTests(unittest.TestCase):
         header = struct.pack("<IIIIIIII", 0xFEEDFACF, 0x0100000C, 0, 2, 1, 24, 0, 0)
         command = struct.pack("<IIIIII", 0x32, 24, binary_platform, 0x110000, 0x110000, 0)
         info = {"CFBundleExecutable": "Test", "CFBundleIdentifier": "test.synthetic",
+            "CFBundleShortVersionString": "0.1.0",
             "CFBundleSupportedPlatforms": [plist_platform], "DTPlatformName": plist_platform.lower(),
             "UIDeviceFamily": [1], "NSLocalNetworkUsageDescription": "synthetic fixture"}
         with zipfile.ZipFile(path, "w") as archive:
@@ -28,7 +29,9 @@ class ValidatorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "synthetic.ipa"
             self.make_fixture(path)
-            self.assertEqual(module.validate(path)["platform"], "iPhoneOS")
+            report = module.validate(path)
+            self.assertEqual(report["platform"], "iPhoneOS")
+            self.assertEqual(report["version"], "0.1.0")
 
     def test_simulator_plist_is_rejected(self):
         with tempfile.TemporaryDirectory() as folder:

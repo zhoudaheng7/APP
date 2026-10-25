@@ -50,6 +50,7 @@ def validate(path):
             "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
             "bundle_id": info["CFBundleIdentifier"], "platform": "iPhoneOS",
             "architecture": "arm64", "minimum_ios": info.get("MinimumOSVersion"),
+            "version": info.get("CFBundleShortVersionString"),
             "signature": "unsigned - must be re-signed before installation",
         }
 
@@ -58,8 +59,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("ipa")
     parser.add_argument("--report")
+    parser.add_argument("--expected-version")
     args = parser.parse_args()
     report = validate(args.ipa)
+    if args.expected_version and report["version"] != args.expected_version:
+        raise ValueError("App version does not match expected release version")
     output = json.dumps(report, ensure_ascii=False, indent=2)
     if args.report:
         Path(args.report).write_text(output, encoding="utf-8")
