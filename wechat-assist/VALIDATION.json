@@ -4,7 +4,7 @@
   "status": "unsigned iPhoneOS 0.1.0 IPA compiled and verified; signing and physical-device tests pending",
   "current_wechat_version": "4.1.15.56",
   "passed": {
-    "backend_tests": 17,
+    "backend_tests": 19,
     "ocr": "Windows zh-Hans-CN in-memory OCR on synthetic image",
     "responsive_preview": {
       "passed": true,
@@ -58,7 +58,7 @@
         "no physical iPhone"
       ]
     },
-    "automated_tests_total": 20,
+    "automated_tests_total": 22,
     "ipa_format_validator_tests": 3,
     "device_ipa": {
       "file": "WeChatAssist-0.1.0-unsigned.ipa",
@@ -85,6 +85,14 @@
         "physical iPhone runtime",
         "live WeChat capture and real AI provider"
       ]
+    },
+    "local_deployment": {
+      "http_workbench": true,
+      "https_companion_api_local_certificate_check": true,
+      "duplicate_launch_reuses_service": true,
+      "graceful_shutdown": true,
+      "actual_chat_capture_enabled": false,
+      "real_model_configured": false
     }
   },
   "not_verified": [

@@ -140,6 +140,14 @@ class APITests(unittest.TestCase):
     def test_no_message_send_endpoint_exists(self):
         self.assertEqual(self.request("/api/send", self.bridge.admin_token, {"text": "test"})[0], 404)
 
+    def test_phone_cannot_stop_windows_service(self):
+        self.assertEqual(self.request("/api/shutdown", self.bridge.phone_token, {}, phone=True)[0], 403)
+        self.assertFalse(self.bridge.stop.is_set())
+
+    def test_admin_can_request_graceful_shutdown(self):
+        self.assertEqual(self.request("/api/shutdown", self.bridge.admin_token, {})[0], 200)
+        self.assertTrue(self.bridge.stop.is_set())
+
     def test_tls_certificate_fingerprint_matches_der(self):
         from cryptography import x509
         from cryptography.hazmat.primitives import hashes

@@ -208,6 +208,8 @@ def handler_for(bridge, admin=False):
                     bridge.stop_capture()
                 elif path == "/api/revoke":
                     bridge.phone_token = secrets.token_urlsafe(32)
+                elif path == "/api/shutdown":
+                    bridge.stop.set()
                 else:
                     raise AppError("接口不存在", 404)
                 self.send_json({"ok": True})
@@ -266,18 +268,28 @@ def main():
         threading.Thread(target=server.serve_forever, daemon=True).start()
     threading.Thread(target=bridge.auto_loop, daemon=True).start()
     url = f"http://127.0.0.1:{args.port}/#token={bridge.admin_token}"
+    session_path = bridge.data_dir / "session.json"
+    session_path.write_text(json.dumps({"pid": os.getpid(), "admin_url": url,
+                                        "phone_enabled": args.lan}, ensure_ascii=False), encoding="utf-8")
     print("Windows 工作台已启动；默认不读取、不上传、不发送消息。", flush=True)
     print("请保留此窗口。按 Ctrl+C 停止。", flush=True)
     if not args.no_browser:
         webbrowser.open(url)
     try:
-        while True:
-            time.sleep(1)
+        bridge.stop.wait()
     except KeyboardInterrupt:
+        pass
+    finally:
         bridge.stop.set()
         bridge.stop_capture()
         for server in servers:
             server.shutdown()
+            server.server_close()
+        try:
+            if json.loads(session_path.read_text(encoding="utf-8"))["pid"] == os.getpid():
+                session_path.unlink()
+        except (FileNotFoundError, ValueError, KeyError):
+            pass
 
 
 if __name__ == "__main__":

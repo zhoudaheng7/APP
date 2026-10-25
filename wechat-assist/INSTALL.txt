@@ -9,8 +9,8 @@
 
 二、启动 Windows 助手
 
-1. 解压「知会-微信AI助手-首版工程.zip」，进入 WeChatAssist 文件夹。
-2. 双击 Start-Windows.cmd。保留打开的运行窗口。
+1. 解压「知会-Windows助手.zip」（或首版工程压缩包），进入 WeChatAssist 文件夹。
+2. 双击 Start-Windows.cmd，服务会在后台运行。重复双击可以重新打开工作台；停止时双击 Stop-Windows.cmd。
 3. 浏览器会打开电脑工作台。
 4. 在「配置 AI」中填写你自己的兼容模型 API 基础地址、模型名称和密钥。密钥仅保存在当前 Windows 服务进程内；重启服务后重新配置。
 
