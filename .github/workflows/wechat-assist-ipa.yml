@@ -1,0 +1,87 @@
+name: WeChatAssist iPhone IPA for local signing
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - 'codex/wechat-assist*'
+    paths:
+      - 'wechat-assist/ios/**'
+      - 'ios/**'
+      - '.github/workflows/wechat-assist-ipa.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wechat-assist-ipa-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-device:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Locate standalone iOS project
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -f wechat-assist/ios/project.yml ]]; then
+            echo 'IOS_DIR=wechat-assist/ios' >> "$GITHUB_ENV"
+          elif [[ -f ios/project.yml ]]; then
+            echo 'IOS_DIR=ios' >> "$GITHUB_ENV"
+          else
+            echo 'Cannot find the WeChatAssist iOS project' >&2
+            exit 1
+          fi
+          xcodebuild -version
+          swift --version
+      - name: Generate Xcode project
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v xcodegen >/dev/null 2>&1; then
+            brew install xcodegen
+          fi
+          (cd "$IOS_DIR" && xcodegen generate)
+      - name: Compile arm64 iPhoneOS app without signing secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          xcodebuild \
+            -project "$IOS_DIR/WeChatAssist.xcodeproj" \
+            -scheme WeChatAssist \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$RUNNER_TEMP/WeChatAssist-build" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            build 2>&1 | tee artifacts/xcodebuild.log
+      - name: Package and verify IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP="$RUNNER_TEMP/WeChatAssist-build/Build/Products/Release-iphoneos/WeChatAssist.app"
+          test -d "$APP"
+          lipo -archs "$APP/WeChatAssist"
+          xcrun vtool -show-build "$APP/WeChatAssist"
+          mkdir -p "$RUNNER_TEMP/WeChatAssist-package/Payload"
+          ditto "$APP" "$RUNNER_TEMP/WeChatAssist-package/Payload/WeChatAssist.app"
+          ditto -c -k --sequesterRsrc --keepParent \
+            "$RUNNER_TEMP/WeChatAssist-package/Payload" \
+            artifacts/WeChatAssist-unsigned.ipa
+          python3 "$IOS_DIR/scripts/validate_ipa.py" \
+            artifacts/WeChatAssist-unsigned.ipa \
+            --report artifacts/ipa-validation.json
+          echo '待自签 IPA；需要用户在自己的签名工具内签名后安装。未进行真机验证。' > artifacts/INSTALL-STATUS.txt
+      - name: Upload IPA, validation report and compile log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: WeChatAssist-iPhone-unsigned-${{ github.run_number }}
+          path: artifacts/
+          if-no-files-found: warn
+          retention-days: 7

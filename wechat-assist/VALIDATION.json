@@ -1,0 +1,78 @@
+{
+  "date": "2026-10-25",
+  "version": "0.1.0",
+  "status": "development source and interactive design; not a signed IPA",
+  "current_wechat_version": "4.1.15.56",
+  "passed": {
+    "backend_tests": 17,
+    "ocr": "Windows zh-Hans-CN in-memory OCR on synthetic image",
+    "responsive_preview": {
+      "passed": true,
+      "errors": [],
+      "viewports": [
+        {
+          "viewport": 1440,
+          "overflow": false
+        },
+        {
+          "viewport": 1024,
+          "overflow": false
+        },
+        {
+          "viewport": 850,
+          "overflow": false
+        },
+        {
+          "viewport": 390,
+          "overflow": false
+        },
+        {
+          "viewport": 320,
+          "overflow": false
+        }
+      ],
+      "checks": [
+        "candidate selection",
+        "preserve user draft on regenerate",
+        "pause and resume",
+        "demo pairing label",
+        "mobile context and settings"
+      ]
+    },
+    "local_protocol_integration": {
+      "passed": true,
+      "errors": [],
+      "checks": [
+        "real HTTP workbench auth",
+        "model config form",
+        "chat/completions protocol to local fixture",
+        "AI response render",
+        "preserve draft across context updates",
+        "stale draft guard",
+        "verified HTTPS companion state with CA and hostname validation"
+      ],
+      "limits": [
+        "fixture content only",
+        "no live WeChat capture",
+        "no real AI provider",
+        "no physical iPhone"
+      ]
+    },
+    "automated_tests_total": 20,
+    "ipa_format_validator_tests": 3
+  },
+  "not_verified": [
+    "continuous capture from real WeChat",
+    "real model provider",
+    "physical iPhone connection",
+    "iOS compilation",
+    "IPA signing and installation"
+  ],
+  "data": "No real chat content, model keys, pairing tokens, or runtime data are included in this package.",
+  "cloud_build": {
+    "status": "prepared locally, awaiting repository authorization",
+    "output_target": "unsigned arm64 iPhoneOS IPA for local re-signing",
+    "workflow": ".github/workflows/wechat-assist-ipa.yml",
+    "not_yet_run": true
+  }
+}
