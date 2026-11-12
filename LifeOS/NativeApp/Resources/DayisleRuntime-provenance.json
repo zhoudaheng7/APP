@@ -1,21 +1,22 @@
 {
   "sources": {
     "protocol/tools/strict-json.mjs": "903c360d61a6ed6760cbf735e250eaf748e3196fb592a688ab6e139d5789c044",
+    "protocol/tools/protocol.mjs": "064ed6ed29a8eb0323a1c081b54b81e60ee7602778dad24cf1b8fc6b10e25530",
     "protocol/tools/projection.mjs": "1efaa8d4f4c35127cbb3887254d36bde1d79ac08e653e0d836a8c12a3077eef9",
-    "protocol/tools/schema-validator.mjs": "0227d5678f2637c2d2e83b607d2856b90ec5da247af1c9e5008e06c816f245cf",
     "protocol/tools/operations.mjs": "c67af0f68c6b1f9d2c8ff755db2ad7c7d4c2d67df61fe7064ad8099eff1e7134",
-    "protocol/tools/protocol.mjs": "064ed6ed29a8eb0323a1c081b54b81e60ee7602778dad24cf1b8fc6b10e25530"
+    "protocol/tools/schema-validator.mjs": "0227d5678f2637c2d2e83b607d2856b90ec5da247af1c9e5008e06c816f245cf"
   },
   "ownSources": {
     "integrations/wire-runtime/runtime.mjs": "3cc5be41dbdd1dc47b9da61e1c8b6dcf565fbf38f3b04547a48cc3f671c7e107",
     "integrations/wire-runtime/disclosure.mjs": "303b91c1462dd7e9992caa887b138994f1f3d55131d7d42188ee01d8bd9f2804",
     "integrations/wire-runtime/platform.mjs": "f779524bd18831790563baf46316957bd3da09af1d84c169719e8b1fccd3b770",
-    "integrations/wire-runtime/build.mjs": "1952c6e8257f8bd55d6748902033a67f8656d76de96288a2aad4cb64d2185a0c",
-    "integrations/wire-runtime/package-lock.json": "6dfed5c9d6214756f34715ad857b06d09f3f7b5d8d14e906b6efc5355768854c",
-    "apps/obsidian-dayisle/main.mjs": "c05567f5fb6e5e7587a03000f30936e7f0a2986a3854219929acfb1883224ddb",
+    "integrations/wire-runtime/build.mjs": "0fe923dfc5f716e0219bb06e4d44bbbf63562a73a7d5ed7b33d2124ba9017089",
+    "integrations/wire-runtime/package-lock.json": "61e2d5090ad23cce47393953fc6ddd233380c4709f51bdc9027ab3fb421243f2",
+    "apps/obsidian-dayisle/main.mjs": "17cc9633a77811ea2205b37d88776fafea03cf7b597cbed486798e0e66b22922",
+    "apps/obsidian-dayisle/glass-calendar.css": "5bbeb34ef747ab5f6f6500dbd416492c092de23d6a7d3bb1b96d73c68d8fd620",
     "apps/obsidian-dayisle/manifest.json": "63d0fd508c19c0872bded2736a2aed07d3f67c7b6eba482f87bcd4d41496ef87"
   },
   "bundleSHA256": "d2ea862a1280c172564ebb347b13046dda00fea19a9fb1da5f69afffef00aa47",
-  "pluginSHA256": "a338a6d97d2a02fc591455137b565d0fe5ca15b462c7ced2e28b0e78ab66dabc",
+  "pluginSHA256": "78a963b17740593f098672f4903c345dd8ae9c63e800f7180b53898c4dd9e97e",
   "hashing": "raw UTF-8 file bytes; pinned npm lockfile"
 }

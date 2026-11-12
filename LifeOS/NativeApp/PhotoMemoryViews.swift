@@ -16,6 +16,7 @@ struct PhotoEditorDraft: Codable {
     var date: Date
     var memoryID: UUID?
     var tripID: UUID?
+    var timeZone: String?
 }
 enum PhotoProcessor {
     static func prepare(_ bytes: Data,maxDimension: Int = 1600) throws -> PreparedPhoto {
@@ -71,7 +72,7 @@ struct PhotoStrip: View {
             VStack(alignment: .leading, spacing: 8) {
                 if let bytes = store.photoData(photo.id), let image = UIImage(data: bytes) { Image(uiImage: image).resizable().scaledToFit().frame(maxHeight: 340).clipShape(RoundedRectangle(cornerRadius: 16)) }
                 else { Label("照片副本暂不可读，文字仍保留", systemImage: "photo.badge.exclamationmark").foregroundStyle(.secondary) }
-                HStack { VStack(alignment: .leading) { if !photo.caption.isEmpty { Text(photo.caption) }; Text(photo.capturedAt.formatted(date: .abbreviated, time: .omitted)).font(.caption).foregroundStyle(.secondary) }; Spacer(); Button { editing = photo } label: { Image(systemName:"pencil") }.buttonStyle(.borderless).accessibilityLabel("编辑照片记忆"); Button(role: .destructive) { deleting = photo } label: { Image(systemName: "trash") }.buttonStyle(.borderless).accessibilityLabel("删除照片副本") }
+                HStack { VStack(alignment: .leading) { if !photo.caption.isEmpty { Text(photo.caption) }; Text(recordTimeText(photo.capturedAt,zone:photo.timeZone)).font(.caption).foregroundStyle(.secondary) }; Spacer(); Button { editing = photo } label: { Image(systemName:"pencil") }.buttonStyle(.borderless).accessibilityLabel("编辑照片记忆"); Button(role: .destructive) { deleting = photo } label: { Image(systemName: "trash") }.buttonStyle(.borderless).accessibilityLabel("删除照片副本") }
             }.padding(.vertical, 5)
         }
         .confirmationDialog("删除朝屿中的照片副本？", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }), titleVisibility: .visible) {
@@ -96,8 +97,9 @@ struct AddPhotoView: View {
     @State private var selectedTripID: UUID?
     @State private var initialized = false
     @State private var saved = false
+    @State private var timeZone: String? = TimeZone.current.identifier
     var draftKey: String { "new-photo:" + (memoryID?.uuidString ?? "independent") + ":" + (tripID?.uuidString ?? "independent") }
-    var draft: PhotoEditorDraft { PhotoEditorDraft(jpeg:prepared?.data,width:prepared?.width,height:prepared?.height,caption:caption,date:date,memoryID:selectedMemoryID,tripID:selectedTripID) }
+    var draft: PhotoEditorDraft { PhotoEditorDraft(jpeg:prepared?.data,width:prepared?.width,height:prepared?.height,caption:caption,date:date,memoryID:selectedMemoryID,tripID:selectedTripID,timeZone:timeZone) }
     var body: some View {
         NavigationStack { Form {
             Section {
@@ -106,7 +108,7 @@ struct AddPhotoView: View {
                 if let prepared, let image = UIImage(data: prepared.data) { Image(uiImage: image).resizable().scaledToFit().frame(maxHeight: 300) }
                 if let issue { Text(issue).font(.caption).foregroundStyle(.secondary) }
             }
-            Section { TextField("照片说明", text: $caption, axis: .vertical); DatePicker("这张记忆的日期", selection: $date) }
+            Section { TextField("照片说明", text: $caption, axis: .vertical); DatePicker("这张记忆的日期", selection: $date); AttributionZonePicker(zone:$timeZone) }
             Section("由你确认关联") {
                 Picker("地点记忆", selection: $selectedMemoryID) { Text("不关联地点").tag(UUID?.none); ForEach(store.data.places) { Text($0.title).tag(Optional($0.id)) } }
                 Picker("行程", selection: $selectedTripID) { Text("独立照片记忆").tag(UUID?.none); ForEach(store.data.trips) { Text($0.title).tag(Optional($0.id)) } }
@@ -114,10 +116,11 @@ struct AddPhotoView: View {
             }
             Section { Text("只保存你选中的这一张的压缩副本，不扫描相册、不读取照片位置或拍摄时间，不上传。全部照片副本总计上限64MB。") .font(.caption).foregroundStyle(.secondary) }
         }.navigationTitle("一张生活记忆").navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() } }; ToolbarItem(placement: .confirmationAction) { Button("保存") { if let prepared { let photo = LifePhoto(caption: caption, capturedAt: date, memoryID: selectedMemoryID, tripID: selectedTripID, sha256: LifeStore.fingerprint(prepared.data), width: prepared.width, height: prepared.height, bytes: prepared.data.count); if store.addPhoto(photo, bytes: prepared.data) { saved = true; EditorDrafts.remove(draftKey); dismiss() } } }.disabled(prepared == nil || loading) } }
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() } }; ToolbarItem(placement: .confirmationAction) { Button("保存") { if let prepared { let photo = LifePhoto(caption: caption, capturedAt: date, memoryID: selectedMemoryID, tripID: selectedTripID, sha256: LifeStore.fingerprint(prepared.data), width: prepared.width, height: prepared.height, bytes: prepared.data.count,timeZone:timeZone); if store.addPhoto(photo, bytes: prepared.data) { saved = true; EditorDrafts.remove(draftKey); dismiss() } } }.disabled(prepared == nil || loading) } }
             .onAppear { if !initialized { initialized = true; selectedMemoryID = memoryID; selectedTripID = tripID
-                if let d = EditorDrafts.value(draftKey,as:PhotoEditorDraft.self) { caption = d.caption; date = d.date; selectedMemoryID = d.memoryID; selectedTripID = d.tripID; if let bytes = d.jpeg,let w = d.width,let h = d.height,bytes.count <= 2_000_000,PhotoProcessor.isSanitizedJPEG(bytes,width:w,height:h) { prepared = PreparedPhoto(data:bytes,width:w,height:h) } }
+                if let d = EditorDrafts.value(draftKey,as:PhotoEditorDraft.self) { caption = d.caption; date = d.date; selectedMemoryID = d.memoryID; selectedTripID = d.tripID; timeZone = d.timeZone; if let bytes = d.jpeg,let w = d.width,let h = d.height,bytes.count <= 2_000_000,PhotoProcessor.isSanitizedJPEG(bytes,width:w,height:h) { prepared = PreparedPhoto(data:bytes,width:w,height:h) } }
             } }
+            .environment(\.timeZone,timeZone.flatMap(TimeZone.init(identifier:)) ?? .current)
             .retainingDraft(draftKey,fields:EditorDrafts.fields(draft),active:initialized && !saved && (prepared != nil || !caption.isEmpty))
             .task(id: selection) {
                 guard let selection else { return }; prepared = nil; issue = nil; loading = true; defer { loading = false }

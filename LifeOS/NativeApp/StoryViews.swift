@@ -31,7 +31,7 @@ struct NewStoryView: View {
     var draftKey: String { "new-story:" + (previous?.id.uuidString ?? "independent") }
     var body: some View {
         NavigationStack { Form {
-            Section("写给自己的话") { TextField("故事名称",text:$choice.title); TextField("用自己的话讲述这段日子",text:$choice.narrative,axis:.vertical).lineLimit(5...12) }
+            Section("写给自己的话") { TextField("故事名称",text:$choice.title).accessibilityIdentifier("storyTitle"); TextField("用自己的话讲述这段日子",text:$choice.narrative,axis:.vertical).lineLimit(5...12).accessibilityIdentifier("storyNarrative") }
             Section("本次带出什么") {
                 Toggle("带出日期和时间",isOn:$choice.dates); Toggle("带出地点及行程标题",isOn:$choice.places); Toggle("带出已记录的人物别名",isOn:$choice.people); Toggle("带出所选记录原文和照片说明",isOn:$choice.sourceText)
                 Text("关闭地点或人物时会替换已登记的名称；无法识别所有自由文字中的隐私。照片本身可能含人脸、门牌与地标，分享前逐项核对预览。不会导出精确坐标或路线图。") .font(.caption).foregroundStyle(.secondary)
@@ -45,7 +45,7 @@ struct NewStoryView: View {
             Section("主动选照片 · 最多3张") { ForEach(store.data.photos.prefix(300)) { photo in Toggle(photo.caption.isEmpty ? "一张照片 · " + photo.capturedAt.formatted(date:.abbreviated,time:.omitted) : photo.caption,isOn:Binding(get:{ choice.photos.contains(photo.id) },set:{ enabled in if enabled { if choice.photos.count < 3 { choice.photos.append(photo.id) } } else { choice.photos.removeAll { $0 == photo.id } } })) } }
             Section { Button("生成本次预览",systemImage:"eye") {
                 do { preview = try store.makeStory(choice); sourceFingerprint = try Self.fingerprint(store.data) } catch { store.error = error.localizedDescription }
-            }.disabled(choice.title.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty || choice.sources.count > 100)
+            }.disabled(choice.title.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty || choice.sources.count > 100).accessibilityIdentifier("storyPreview")
                 Text("保存的是本次确认的快照。以后修改、删除原记录，不会静默改写已保存故事；可单独删除故事。已分享出去的PDF由接收方保留，无法远程撤回。") .font(.caption).foregroundStyle(.secondary)
             }
         }.navigationTitle(previous == nil ? "制作故事" : "制作下一版").navigationBarTitleDisplayMode(.inline)
@@ -59,7 +59,7 @@ struct NewStoryView: View {
                         guard try Self.fingerprint(store.data) == sourceFingerprint else { throw LifeError.message("来源记录已变化，请返回重新生成预览。") }
                         if store.saveStory(story) { saved = true; EditorDrafts.remove(draftKey); preview = nil; dismiss() }
                     } catch { store.error = error.localizedDescription }
-                } }
+                }.accessibilityIdentifier("saveStory") }
             } } }
         }
     }
@@ -98,7 +98,7 @@ struct StoryDetailView: View {
                     }.disabled(exportURL != nil)
                     Button("新建下一版",systemImage:"doc.badge.plus") { next = true }
                     Button("删除这份故事",role:.destructive) { delete = true }
-                } label: { Image(systemName:"ellipsis.circle") }
+                } label: { Image(systemName:"ellipsis.circle") }.accessibilityIdentifier("storyActions").accessibilityLabel("故事操作")
             }
             .sheet(item:$export,onDismiss:{ if let url = exportURL { do { try PrivateArtifacts.finishExport(url) } catch { store.error = error.localizedDescription } }; exportURL = nil }) { PrivateShareSheet(url:$0.url) }
             .sheet(isPresented:$next) { NewStoryView(previous:story) }

@@ -14,7 +14,7 @@ struct MemoriesView: View {
     var body: some View {
         List {
             Section {
-                NavigationLink { StoryListView() } label: { Label("制作自己的故事与PDF",systemImage:"book.pages") }
+                NavigationLink { StoryListView() } label: { Label("制作自己的故事与PDF",systemImage:"book.pages") }.accessibilityIdentifier("storiesEntry")
                 NavigationLink { MemoryHistoryView() } label: { Label("往日与年度回看",systemImage:"calendar.badge.clock") }
                 VStack(alignment: .leading, spacing: 8) {
                     Text("生活不只是一张清单。") .font(.title2.bold())

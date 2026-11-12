@@ -111,7 +111,13 @@ sleep 1
 xcrun simctl io "$SIMULATOR_ID" screenshot dist/LifeOS-dark.png
 python3 - <<'PY'
 from pathlib import Path
-import json,subprocess
+import json,subprocess,re
 package=json.loads(Path('dist/unsigned-check.json').read_text())
+log=Path('dist/native-tests.log').read_text()
+required=['testActualLegacySQLitePayloadMigratesAndReopensWithoutChangingIDs','testCompetingStoreNeverOverwritesAConcurrentCommit','testPhotoProcessingRemovesPrivateMetadataAndBackupRejectsItsReintroduction','testNativeJavaScriptCoreRunsFrozenMachineAndProjectionCorpus','testWithdrawCheckpointsAndRetiresOldPayloadsThenUpdatesRegisteredNote','testWithdrawLeavesHandEditedManagedBlockAsVisibleConflict','testStoryPDFPaginatesChineseAndReopensSavedSnapshotAfterSourceDeletion','testClosingComposerKeepsDraftUntilExplicitSave','testStoryConfirmationPersistsAndOpensActualPDF','testBaselineUpgradePreservesV1Task']
+assert all(re.search(r"Test Case .* "+re.escape(name)+r"\]' passed",log) for name in required), 'A required release test did not actually pass'
+assert re.search(r'Executed (?:[5-9][0-9]|[1-9][0-9]{2,}) tests, with 0 failures',log), 'Native/UI test count is unexpectedly small'
+assert 'testCreateTaskSurvivesRelaunch' in Path('dist/baseline-install.log').read_text(), 'Old app installation gate missing'
+Path('dist/required-tests.json').write_text(json.dumps({'passed':required,'minimum_combined_test_count':50},indent=2))
 Path('dist/release-gate.json').write_text(json.dumps({'mode':'full','software_checks':'passed','source_commit':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),'baseline_to_new_container_preserved':True,'domain_native_ui_tests_passed':True,'unsigned_sha256':package['sha256'],'version':package['version'],'build':package['build'],'physical_iphone_verified':False,'real_vault_provider_verified':False},indent=2))
 PY

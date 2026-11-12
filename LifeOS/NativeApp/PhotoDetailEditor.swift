@@ -13,7 +13,7 @@ struct PhotoDetailEditor: View {
             if let value = draft,let current {
                 Form {
                     EditorConflictNotice(changed:current != value.original,current:current.caption + "\n" + current.capturedAt.formatted()) { draft?.original = current }
-                    Section { TextField("照片说明",text:binding(\.caption,fallback:value.edited),axis:.vertical); DatePicker("记忆日期",selection:binding(\.capturedAt,fallback:value.edited)) }
+                    Section { TextField("照片说明",text:binding(\.caption,fallback:value.edited),axis:.vertical); DatePicker("记忆日期",selection:binding(\.capturedAt,fallback:value.edited)); AttributionZonePicker(zone:binding(\.timeZone,fallback:value.edited)) }
                     Section("关联") {
                         Picker("地点记忆",selection:binding(\.memoryID,fallback:value.edited)) { Text("独立照片").tag(UUID?.none); ForEach(store.data.places) { Text($0.title).tag(Optional($0.id)) } }
                         Picker("行程",selection:binding(\.tripID,fallback:value.edited)) { Text("不关联").tag(UUID?.none); ForEach(store.data.trips) { Text($0.title).tag(Optional($0.id)) } }

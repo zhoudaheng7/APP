@@ -52,6 +52,7 @@ struct TripEditorContent: View {
         Form {
             if let current = store.data.trips.first(where: { $0.id == trip.id }) { EditorConflictNotice(changed: current.revision != trip.revision, current: current.title + "\n" + current.note + "\n" + current.start.formatted() + " — " + current.end.formatted()) { trip.revision = current.revision } }
             Section { TextField("行程名称", text: $trip.title); DatePicker("开始", selection: $trip.start); DatePicker("结束", selection: $trip.end, in: trip.start...); TextField("这段路上的故事", text: $trip.note, axis: .vertical).lineLimit(5...15); Toggle("收藏行程", isOn: $trip.favorite) }
+            Section { AttributionZonePicker(zone:$trip.timeZone); Text(recordTimeText(trip.start,zone:trip.timeZone)).font(.caption).foregroundStyle(.secondary) }
             Section("选择关联到访") {
                 ForEach(store.data.visits.filter { $0.state == "confirmed" }) { visit in
                     Toggle(isOn: selected(visit.id, path: \.visitIDs)) { VisitRow(visit: visit) }
@@ -144,12 +145,13 @@ struct PeriodSummaryView: View {
     @State private var createTask = false
     @State private var original: PeriodReview?
     @State private var delete = false
+    var periodZone: TimeZone { original?.timeZone.flatMap(TimeZone.init(identifier:)) ?? .current }
     var draftFields: [String:String] {
         var fields = ["title":title,"reflection":reflection,"next":next]
         if let original { fields["original"] = EditorDrafts.fields(original)["record"] }
         return fields
     }
-    var daily: [LifeReview] { store.data.reviews.filter { $0.canonical != false && $0.day >= LifeSnapshot.dayKey(start) && $0.day < LifeSnapshot.dayKey(end) } }
+    var daily: [LifeReview] { store.data.reviews.filter { $0.canonical != false && $0.day >= LifeSnapshot.dayKey(start,zone:periodZone) && $0.day < LifeSnapshot.dayKey(end,zone:periodZone) } }
     var plans: [LifePlan] { store.data.plans.filter { !$0.cancelled && $0.start < end && $0.end > start } }
     var body: some View {
         Form {

@@ -24,7 +24,7 @@ import SwiftUI
             .alert("未能完成操作", isPresented: Binding(get: { store.error != nil }, set: { if !$0 { store.error = nil } })) {
                 Button("知道了", role: .cancel) { store.error = nil }
             } message: { Text(store.error ?? "") }
-            .onAppear { location.attach(store) }
+            .onAppear { location.attach(store); do { try PrivateArtifacts.sweep() } catch { store.error = error.localizedDescription } }
             .onChange(of: scenePhase) { _, phase in
                 location.setForeground(phase == .active)
                 if phase == .active { Task { await LifeNotifications.shared.reschedule(store.data.plans) } }

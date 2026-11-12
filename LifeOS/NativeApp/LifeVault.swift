@@ -60,7 +60,7 @@ private struct PublicationPreview {
     private(set) var projectionIssues: [String] = []
     private(set) var privacyCleanupPending = false
     private var checkpointNeeded = false
-    var pendingMappedBlocksCount: Int { binding?.mappings.values.filter { $0.lastCommitID != store.data.disclosure.lastCommitID }.count ?? 0 }
+    var pendingMappedBlocksCount: Int { let head = verifiedCommit?["commitID"] as? String ?? store.data.disclosure.lastCommitID; return binding?.mappings.values.filter { $0.lastCommitID != head }.count ?? 0 }
     private(set) var incoming: [IncomingReview] = []
     private let store: LifeStore
     private let directory: URL?
@@ -69,15 +69,20 @@ private struct PublicationPreview {
         self.directory = directory
         do {
             let url = try bindingURL()
-            if FileManager.default.fileExists(atPath: url.path) { binding = try JSONDecoder().decode(VaultBinding.self, from: Data(contentsOf: url)) }
+            if FileManager.default.fileExists(atPath: url.path) {
+                let value = try url.resourceValues(forKeys:[.fileSizeKey,.isSymbolicLinkKey]); guard value.isSymbolicLink != true,(value.fileSize ?? Int.max) <= 2*1024*1024 else { throw LifeError.invalidValue }
+                binding = try JSONDecoder().decode(VaultBinding.self, from: Data(contentsOf: url))
+            }
         } catch { message = "已保存的目录授权无法读取，原文件未重置；请重新选择目录。" }
     }
     private func bindingURL() throws -> URL {
         let root = try directory ?? FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true).appendingPathComponent("LifeOS", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true); return root.appendingPathComponent("VaultBinding-v2.json")
     }
-    private func persistBinding(_ binding: VaultBinding) throws {
-        try JSONEncoder().encode(binding).write(to: bindingURL(), options: [.atomic,.completeFileProtectionUntilFirstUserAuthentication]); self.binding = binding
+    @discardableResult private func persistBinding(_ binding: VaultBinding) throws -> Data {
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]; let bytes = try encoder.encode(binding)
+        guard bytes.count <= 2*1024*1024 else { throw LifeError.message("目录映射登记超过2MB，原件保留。") }
+        try bytes.write(to: bindingURL(), options: [.atomic,.completeFileProtectionUntilFirstUserAuthentication]); self.binding = binding; return bytes
     }
     private func pendingURL(_ binding: VaultBinding) throws -> URL { try bindingURL().deletingLastPathComponent().appendingPathComponent("PendingVaultPublication-" + binding.id.uuidString + ".json") }
     private func pendingWrite(_ binding: VaultBinding) throws -> PendingVaultWrite? {
@@ -111,10 +116,18 @@ private struct PublicationPreview {
             var settings = store.data.disclosure
             if newDataset { settings = DisclosureSettings() }
             var next = (!newDataset ? binding : nil) ?? VaultBinding(bookmark: bookmark, datasetID: settings.datasetID, writerID: settings.writerID)
-            next.bookmark = bookmark; try persistBinding(next)
+            next.bookmark = bookmark
+            let priorBinding = binding
+            let writtenBinding = try persistBinding(next)
             if store.commit(kind: "vault.bind", id: next.id, { $0.disclosure = settings; $0.disclosure.enabled = true; $0.disclosure.approvedAt = Date() }) {
                 runtime = try WireRuntime(); verifiedCommit = nil; projectionKey = nil; projectionKeys = [:]; projectionCandidates = []; projectionIssues = []; publicationCandidate = nil
                 message = "已绑定你选择的目录。尚未向Vault发布任何事实，先预览内容。"
+            } else {
+                let path = try bindingURL()
+                guard try Data(contentsOf:path) == writtenBinding else { throw LifeError.message("绑定保存期间目录凭据已变化，原件保留，请重新核对。") }
+                if let priorBinding { try persistBinding(priorBinding) }
+                else { try FileManager.default.removeItem(at:path); binding = nil }
+                message = store.error ?? "本机数据未保存，原目录绑定已恢复。"
             }
         } catch { message = error.localizedDescription }
     }

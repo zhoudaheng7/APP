@@ -88,7 +88,7 @@ import UIKit
         let store = LifeStore(inMemory:true),prepared = try syntheticPhoto(),photo = LifePhoto(caption:"虚构说明",capturedAt:Date(),sha256:LifeStore.fingerprint(prepared.data),width:prepared.width,height:prepared.height,bytes:prepared.data.count)
         XCTAssertTrue(store.addPhoto(photo,bytes:prepared.data)); var edited = photo; edited.caption = "修订说明"
         XCTAssertTrue(store.editPhoto(photo,edited:edited)); XCTAssertFalse(store.editPhoto(photo,edited:edited)); XCTAssertEqual(store.photoData(photo.id),prepared.data)
-        let draft = PhotoEditorDraft(jpeg:prepared.data,width:prepared.width,height:prepared.height,caption:"未保存说明",date:Date(),memoryID:nil,tripID:nil)
+        let draft = PhotoEditorDraft(jpeg:prepared.data,width:prepared.width,height:prepared.height,caption:"未保存说明",date:Date(),memoryID:nil,tripID:nil,timeZone:"Asia/Shanghai")
         let decoded = try JSONDecoder().decode(PhotoEditorDraft.self,from:JSONEncoder().encode(draft)); XCTAssertEqual(decoded.jpeg,prepared.data); XCTAssertEqual(decoded.caption,"未保存说明")
     }
 }

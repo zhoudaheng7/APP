@@ -11,14 +11,18 @@ struct HealthContextSnapshot {
     var workouts: [String]
     var sources: [String]
     var summary: String {
-        ["健康上下文 · " + LifeSnapshot.dayKey(start, zone: TimeZone(identifier: zone) ?? .current),
-         "查询范围：" + recordTimeText(start, zone: zone) + " 至 " + recordTimeText(end, zone: zone),
-         "可读步数：" + (steps.map { String(Int($0)) } ?? "未知"),
-         "可读睡眠区间并集：" + (sleepSeconds.map(minutesText) ?? "未知"),
-         "可读锻炼：" + (workouts.isEmpty ? "未知" : workouts.joined(separator: "；")),
-         "来源：" + (sources.isEmpty ? "无可读来源" : sources.joined(separator: "、")),
-         "读取于：" + readAt.formatted(),
-         "仅含本次可读样本，可能不完整；不代表医疗判断或实际投入。"].joined(separator: "\n")
+        var rows: [String] = []
+        let day = LifeSnapshot.dayKey(start,zone:TimeZone(identifier:zone) ?? .current)
+        rows.append("健康上下文 · " + day)
+        rows.append("查询范围：" + recordTimeText(start,zone:zone) + " 至 " + recordTimeText(end,zone:zone))
+        let stepText = steps.map { String(Int($0)) } ?? "未知"
+        let sleepText = sleepSeconds.map { minutesText($0) } ?? "未知"
+        rows.append("可读步数：" + stepText); rows.append("可读睡眠区间并集：" + sleepText)
+        rows.append("可读锻炼：" + (workouts.isEmpty ? "未知" : workouts.joined(separator:"；")))
+        rows.append("来源：" + (sources.isEmpty ? "无可读来源" : sources.joined(separator:"、")))
+        rows.append("读取于：" + readAt.formatted())
+        rows.append("仅含本次可读样本，可能不完整；不代表医疗判断或实际投入。")
+        return rows.joined(separator:"\n")
     }
 }
 
@@ -63,7 +67,8 @@ enum HealthContextMath {
             let asleep = sleep.filter { asleepValues.contains($0.value) }
             let sum = statistics?.sumQuantity()?.doubleValue(for: .count())
             let stepValue = sum.flatMap { $0.isFinite && $0 >= 0 && $0 < Double(Int.max) ? $0 : nil }
-            let names = (statistics?.sources()?.map(\.name) ?? []) + sleep.map { $0.sourceRevision.source.name } + workouts.map { $0.sourceRevision.source.name }
+            var names: [String] = statistics?.sources?.map { $0.name } ?? []
+            names += sleep.map { $0.sourceRevision.source.name }; names += workouts.map { $0.sourceRevision.source.name }
             let exercise = workouts.map { item in
                 recordTimeText(item.startDate,zone: calendar.timeZone.identifier) + " · " + minutesText(item.duration) + " · " + item.sourceRevision.source.name
             }

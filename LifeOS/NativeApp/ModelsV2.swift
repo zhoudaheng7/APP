@@ -76,6 +76,7 @@ struct LifePhoto: Codable, Identifiable, Equatable {
     var height: Int
     var bytes: Int
     var metadataRemoved = true
+    var timeZone: String? = TimeZone.current.identifier
 }
 struct PeriodReview: Codable, Identifiable, Equatable {
     var id = UUID()
@@ -86,6 +87,7 @@ struct PeriodReview: Codable, Identifiable, Equatable {
     var nextStep: String
     var createdAt = Date()
     var revision: Int64 = 1
+    var timeZone: String? = TimeZone.current.identifier
 }
 struct LifeAmendment: Codable, Identifiable {
     var id = UUID()
@@ -193,7 +195,7 @@ extension LifeSnapshot {
         revisions.append(contentsOf: routes.map { $0.metadataRevision ?? 1 })
         guard revisions.allSatisfy({ (1...9_007_199_254_740_991).contains($0) }), (0...9_007_199_254_740_991).contains(disclosure.lastSequence),
               routes.allSatisfy({ $0.points.allSatisfy { point in (0...9_007_199_254_740_991).contains(point.segment) && (point.accuracy == nil || (point.accuracy!.isFinite && point.accuracy! >= 0)) } }) else { throw LifeError.message("记录计数或采样信息无效，原数据已保留。") }
-        let zones = plans.map(\.timeZone) + sessions.map(\.timeZone) + reviews.map(\.timeZone) + places.compactMap(\.timeZone) + routes.compactMap(\.timeZone) + trips.compactMap(\.timeZone)
+        let zones = plans.map(\.timeZone) + sessions.map(\.timeZone) + reviews.map(\.timeZone) + places.compactMap(\.timeZone) + routes.compactMap(\.timeZone) + trips.compactMap(\.timeZone) + photos.compactMap(\.timeZone)
         guard zones.allSatisfy({ TimeZone(identifier:$0) != nil }), visits.allSatisfy({ $0.timeZoneSource == nil || ($0.timeZoneSource == "user" && TimeZone(identifier:$0.timeZone) != nil) }) else { throw LifeError.invalidValue }
         guard dates.allSatisfy(finite), calendarLinks.allSatisfy({ link in plans.contains { $0.id == link.planID } }),
               collectionWindows.allSatisfy({ finite($0.start) && ($0.end == nil || $0.end! >= $0.start) }),
