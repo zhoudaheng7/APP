@@ -107,4 +107,29 @@ import UIKit
         XCTAssertThrowsError(try PrivateArtifacts.finishExport(changed)); XCTAssertEqual(try Data(contentsOf:changed),Data("edited by user".utf8))
         try bytes.write(to:changed); try PrivateArtifacts.finishExport(changed)
     }
+    func testTypedReviewShortcutAppendSurvivesPendingDebounceAndPreservesAllEdits() throws {
+        let store = LifeStore(inMemory:true),review = LifeReview(day:"2039-02-03",reflection:"已保存正文",mood:2),key = "review:" + review.id.uuidString
+        defer { EditorDrafts.remove(key) }
+        XCTAssertTrue(store.addReview(review)); var edited = review; edited.reflection = "页面旧稿"; edited.people = ["虚构别名"]; edited.mood = 4
+        let oldFields = EditorDrafts.fields(RecordDraft(original:review,edited:edited))
+        try EditorDrafts.write(key,fields:oldFields); try EditorDrafts.appendReviewText("快捷指令追加",day:review.day,existing:review)
+        try EditorDrafts.write(key,fields:oldFields) // An old debounce cannot drop the append queue.
+        XCTAssertEqual(try EditorDrafts.pendingReviewAppends(key).count,1)
+        let lease = EditorDrafts.version(key)
+        let text = try EditorDrafts.consumeReviewAppends(key,baseText:"页面最新尚未落盘的文字") { text in var next = edited; next.reflection = text; return EditorDrafts.fields(RecordDraft(original:review,edited:next)) }
+        XCTAssertEqual(text,"页面最新尚未落盘的文字\n快捷指令追加"); XCTAssertGreaterThan(EditorDrafts.version(key),lease)
+        let retained = try XCTUnwrap(EditorDrafts.value(key,as:RecordDraft<LifeReview>.self))
+        XCTAssertEqual(retained.edited.people,["虚构别名"]); XCTAssertEqual(retained.edited.mood,4); XCTAssertEqual(retained.edited.reflection,text)
+        XCTAssertTrue(try EditorDrafts.pendingReviewAppends(key).isEmpty); XCTAssertEqual(store.data.reviews[0].reflection,"已保存正文")
+    }
+    func testNewReviewShortcutAppendCarriesLegacyDraftWithoutSavingFact() throws {
+        let day = "2999-12-31",legacy = "review-" + day,key = "compose:review-" + day
+        defer { EditorDrafts.remove(key); EditorDrafts.remove(legacy) }
+        try EditorDrafts.write(legacy,fields:["note":"旧版未保存的文字","mood":"5"])
+        try EditorDrafts.appendReviewText("新追加",day:day,existing:nil)
+        XCTAssertEqual(EditorDrafts.load(key)?["note"],"旧版未保存的文字")
+        let merged = try EditorDrafts.consumeReviewAppends(key,baseText:"旧版未保存的文字") { ["note":$0,"mood":"5"] }
+        XCTAssertEqual(merged,"旧版未保存的文字\n新追加"); XCTAssertEqual(EditorDrafts.load(key)?["mood"],"5")
+        XCTAssertEqual(EditorDrafts.load(legacy)?["note"],"旧版未保存的文字")
+    }
 }

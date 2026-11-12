@@ -32,7 +32,8 @@ struct EndFocusIntent: AppIntent {
     static var authenticationPolicy: IntentAuthenticationPolicy = .requiresLocalDeviceAuthentication
     @MainActor func perform() async throws -> some IntentResult & ProvidesDialog {
         let store = LifeStore.shared
-        guard store.ready, store.runningSession != nil else { return .result(dialog: "当前没有正在计时的投入。") }
+        guard store.ready else { throw LifeError.message(store.error ?? "本机记录暂不可读，请在朝屿中核对。") }
+        guard store.runningSession != nil else { return .result(dialog: "当前没有正在计时的投入。") }
         store.stopSession()
         guard store.runningSession == nil else { throw LifeError.message("未能保存结束时间，请打开朝屿检查。") }
         return .result(dialog: "已结束计时。请在朝屿中核对记录；任务状态没有自动改变。")
@@ -46,14 +47,11 @@ struct CaptureReviewDraftIntent: AppIntent {
     @Parameter(title: "想记住的话") var reflection: String
     @MainActor func perform() async throws -> some IntentResult & ProvidesDialog {
         guard !reflection.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw LifeError.invalidValue }
+        let store = LifeStore.shared
+        guard store.ready else { throw LifeError.message(store.error ?? "本机记录暂不可读，请先在朝屿中核对。") }
         let today = LifeSnapshot.dayKey(Date())
-        let existing = LifeStore.shared.data.reviews.first { $0.day == today && $0.timeZone == TimeZone.current.identifier }
-        let key = existing.map { "review:" + $0.id.uuidString } ?? "review-" + today
-        var draft = EditorDrafts.load(key) ?? [:]
-        let field = existing == nil ? "note" : "text"
-        draft[field] = [draft[field] ?? existing?.reflection, reflection].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "\n")
-        if draft["mood"] == nil { draft["mood"] = existing?.mood.map(String.init) ?? "" }
-        try EditorDrafts.write(key, fields: draft)
+        let existing = store.data.reviews.first { $0.day == today && $0.canonical != false }
+        try EditorDrafts.appendReviewText(reflection,day:today,existing:existing)
         return .result(dialog: "已保留今天的复盘草稿，请在朝屿打开并确认保存。")
     }
 }

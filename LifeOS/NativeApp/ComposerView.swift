@@ -83,13 +83,20 @@ struct ComposerView: View {
                     if let number = draft["end"].flatMap(Double.init) { end = Date(timeIntervalSince1970: number) }
                     mood = draft["mood"].flatMap(Int.init); isCommitment = draft["commitment"] == "true"
                 }
+                mergeReviewAppends()
             }
-            .retainingDraft(draftKey, fields: ["title": title, "note": note, "value": value, "unit": unit, "start": String(start.timeIntervalSince1970), "end": String(end.timeIntervalSince1970), "goalID": goalID?.uuidString ?? "", "taskID": taskID?.uuidString ?? "", "placeID": placeID?.uuidString ?? "", "mood": mood.map(String.init) ?? "", "commitment": String(isCommitment)], active: initialized && !saved && (!title.isEmpty || !note.isEmpty || !value.isEmpty))
+            .onReceive(NotificationCenter.default.publisher(for:EditorDrafts.reviewAppended)) { event in if event.object as? String == draftKey { mergeReviewAppends() } }
+            .retainingDraft(draftKey, fields: fields(note:note), active: initialized && !saved && (!title.isEmpty || !note.isEmpty || !value.isEmpty))
         }.presentationDetents([.large])
     }
     func titleField(_ placeholder: String) -> some View { TextField(placeholder, text: $title, axis: .vertical).font(.title3).lineLimit(1...3).focused($titleFocused).accessibilityIdentifier("composerTitle") }
     var legacyDraftKey: String { kind.id + (initialGoalID.map { ":" + $0.uuidString } ?? "") + (initialTaskID.map { ":" + $0.uuidString } ?? "") + (initialPlaceID.map { ":" + $0.uuidString } ?? "") + (prefilledTitle.isEmpty ? "" : ":" + LifeStore.fingerprint(Data(prefilledTitle.utf8))) }
     var draftKey: String { "compose:" + legacyDraftKey }
+    func fields(note: String) -> [String:String] { ["title":title,"note":note,"value":value,"unit":unit,"start":String(start.timeIntervalSince1970),"end":String(end.timeIntervalSince1970),"goalID":goalID?.uuidString ?? "","taskID":taskID?.uuidString ?? "","placeID":placeID?.uuidString ?? "","mood":mood.map(String.init) ?? "","commitment":String(isCommitment)] }
+    func mergeReviewAppends() {
+        guard initialized,case .review = kind else { return }
+        do { note = try EditorDrafts.consumeReviewAppends(draftKey,baseText:note) { fields(note:$0) } } catch { store.error = "快捷指令追加尚未合并，原草稿保留。" }
+    }
     var placePicker: some View { Section { Picker("关联地点", selection: $placeID) { Text("不关联地点").tag(UUID?.none); ForEach(store.data.knownPlaces) { Text($0.title).tag(Optional($0.id)) } }; Text("这是未来打算，不会被算作到过这里。") .font(.caption).foregroundStyle(.secondary) } }
     var taskPicker: some View { Picker("关联任务", selection: $taskID) { Text("独立记录").tag(UUID?.none); ForEach(store.data.tasks.filter(\.isOpen)) { Text($0.title).tag(Optional($0.id)) } } }
     var number: Double? { decimalValue(value) }
@@ -104,6 +111,9 @@ struct ComposerView: View {
     }
     func save() {
         guard canSave else { return }
+        if case .review = kind {
+            do { if try !EditorDrafts.pendingReviewAppends(draftKey).isEmpty { mergeReviewAppends(); store.error = "已带入新的快捷指令文字，请核对后再保存。"; return } } catch { store.error = error.localizedDescription; return }
+        }
         let clean = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let success: Bool
         switch kind {

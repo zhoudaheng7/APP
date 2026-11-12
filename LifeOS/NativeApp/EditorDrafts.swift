@@ -5,9 +5,11 @@ struct RecordDraft<Value: Codable>: Codable {
     var original: Value
     var edited: Value
 }
+struct ReviewDraftAppend: Codable, Identifiable { var id = UUID(); var text: String }
 
 /// Editor-only drafts are local, protected, and never facts or exchange intents.
 @MainActor enum EditorDrafts {
+    static let reviewAppended = Notification.Name("dayisle.review-draft-appended")
     private static var drafts: [String: [String: String]]?
     private static var readFailure: Error?
     private static var versions: [String:Int] = [:]
@@ -56,7 +58,36 @@ struct RecordDraft<Value: Codable>: Codable {
     }
     static func write(_ key: String, fields: [String: String]) throws {
         _ = load(key); if let readFailure { throw readFailure }
+        var fields = fields
+        // A delayed editor save must not discard newly arrived shortcut input.
+        if let pending = drafts?[key]?["reviewAppends"] { fields["reviewAppends"] = pending }
         var candidate = drafts ?? [:]; candidate[key] = fields; try persist(candidate)
+    }
+    static func pendingReviewAppends(_ key: String) throws -> [ReviewDraftAppend] {
+        let fields = load(key); if let readFailure { throw readFailure }
+        guard let text = fields?["reviewAppends"] else { return [] }
+        let items = try JSONDecoder().decode([ReviewDraftAppend].self,from:Data(text.utf8))
+        guard items.count <= 100,Set(items.map(\.id)).count == items.count else { throw LifeError.invalidValue }; return items
+    }
+    static func appendReviewText(_ text: String,day: String,existing: LifeReview?) throws {
+        let key = existing.map { "review:" + $0.id.uuidString } ?? "compose:review-" + day
+        var fields = load(key) ?? (existing == nil ? load("review-" + day) : nil) ?? [:]
+        var pending = try pendingReviewAppends(key)
+        guard pending.count < 100 else { throw LifeError.message("这一天的待核对追加达到100条，请先在朝屿核对草稿。") }
+        if let existing,fields["record"] == nil,fields["text"] == nil { fields["text"] = existing.reflection; fields["mood"] = existing.mood.map(String.init) ?? ""; fields["people"] = (existing.people ?? []).joined(separator:"，") }
+        pending.append(ReviewDraftAppend(text:text)); fields["reviewAppends"] = String(decoding:try JSONEncoder().encode(pending),as:UTF8.self)
+        _ = load(key); if let readFailure { throw readFailure }
+        var candidate = drafts ?? [:]; candidate[key] = fields; try persist(candidate)
+        NotificationCenter.default.post(name:reviewAppended,object:key)
+    }
+    static func consumeReviewAppends(_ key: String,baseText: String,fields: (String) -> [String:String]) throws -> String {
+        let pending = try pendingReviewAppends(key); guard !pending.isEmpty else { return baseText }
+        if key.hasPrefix("review:"),let record = load(key)?["record"] { _ = try JSONDecoder().decode(RecordDraft<LifeReview>.self,from:Data(record.utf8)) }
+        let text = ([baseText] + pending.map(\.text)).filter { !$0.isEmpty }.joined(separator:"\n")
+        var merged = fields(text); merged.removeValue(forKey:"reviewAppends")
+        var candidate = drafts ?? [:]; candidate[key] = merged
+        // Consumed IDs and the full edited text change in one protected-file write.
+        try persist(candidate); versions[key,default:0] += 1; return text
     }
     static func remove(_ key: String) {
         versions[key,default:0] += 1

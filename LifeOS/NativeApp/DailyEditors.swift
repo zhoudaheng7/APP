@@ -174,10 +174,20 @@ struct ReviewDetailView: View {
                 Section(review.day) { TextField("留给这一天的话", text: $text, axis: .vertical).lineLimit(8...20); Picker("感受", selection: $mood) { Text("不记录").tag(Int?.none); ForEach(1...5, id: \.self) { Text("\($0) / 5").tag(Optional($0)) } }; TextField("人物别名，用逗号分开（可留空）", text: $people) }
                 Section { if review.canonical == false { Text("这是旧版保留的附加草稿，不计入正式复盘天数和感受统计。") }; NavigationLink("查看修订历史") { RecordHistoryView(entityID:review.id,kind:"review") }; Button("删除这篇复盘",role:.destructive) { delete = true }; Text("只记录你手写的别名，不读取通讯录，不合并同名人物。") .font(.caption).foregroundStyle(.secondary); LabeledContent("当前版本", value: String(review.revision ?? 1)); Text("修订保留上一版本，不另造同一天的第二份正式复盘。") .font(.caption).foregroundStyle(.secondary) }
             }.navigationTitle("这一天").navigationBarTitleDisplayMode(.inline)
-                .toolbar { Button("保存修订") { if store.reviseReview(original ?? review, text: text, mood: mood, people: aliases(people)) { original = self.review; EditorDrafts.remove(draftKey) } } }
-                .onAppear { if !initialized { initialized = true; let saved = EditorDrafts.value(draftKey, as: RecordDraft<LifeReview>.self); original = saved?.original ?? review; let value = saved?.edited ?? review; text = value.reflection; mood = value.mood; people = (value.people ?? []).joined(separator: "，"); if saved == nil, let draft = EditorDrafts.load(draftKey) { text = draft["text"] ?? text; people = draft["people"] ?? people; mood = draft["mood"].flatMap(Int.init) } } }
+                .toolbar { Button("保存修订") { saveRevision(review) } }
+                .onAppear { if !initialized { initialized = true; let saved = EditorDrafts.value(draftKey, as: RecordDraft<LifeReview>.self); original = saved?.original ?? review; let value = saved?.edited ?? review; text = value.reflection; mood = value.mood; people = (value.people ?? []).joined(separator: "，"); if saved == nil, let draft = EditorDrafts.load(draftKey) { text = draft["text"] ?? text; people = draft["people"] ?? people; mood = draft["mood"].flatMap(Int.init) } }; mergeReviewAppends() }
+                .onReceive(NotificationCenter.default.publisher(for:EditorDrafts.reviewAppended)) { event in if event.object as? String == draftKey { mergeReviewAppends() } }
                 .confirmationDialog("删除这篇复盘？",isPresented:$delete,titleVisibility:.visible) { Button("删除复盘",role:.destructive) { if store.commit(kind:"review.delete",id:review.id,{ $0.reviews.removeAll { $0.id == review.id }; $0.tombstone(review.id,kind:"review") }) { dismiss() } }; Button("取消",role:.cancel) {} }
                 .retainingDraft(draftKey, fields: draftFields, active: initialized && self.review != nil && (text != review.reflection || mood != review.mood || aliases(people) != (review.people ?? [])))
         }
+    }
+    func mergeReviewAppends() {
+        guard initialized,let original,let edited else { return }
+        do { text = try EditorDrafts.consumeReviewAppends(draftKey,baseText:text) { appended in var value = edited; value.reflection = appended; return EditorDrafts.fields(RecordDraft(original:original,edited:value)) } }
+        catch { store.error = "快捷指令追加尚未合并，原草稿保留。" }
+    }
+    func saveRevision(_ review: LifeReview) {
+        do { if try !EditorDrafts.pendingReviewAppends(draftKey).isEmpty { mergeReviewAppends(); store.error = "已带入新的快捷指令文字，请核对后再保存。"; return } } catch { store.error = error.localizedDescription; return }
+        if store.reviseReview(original ?? review,text:text,mood:mood,people:aliases(people)) { original = self.review; EditorDrafts.remove(draftKey) }
     }
 }

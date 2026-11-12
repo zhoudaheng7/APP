@@ -116,6 +116,8 @@ package=json.loads(Path('dist/unsigned-check.json').read_text())
 log=Path('dist/native-tests.log').read_text()
 required=['testActualLegacySQLitePayloadMigratesAndReopensWithoutChangingIDs','testCompetingStoreNeverOverwritesAConcurrentCommit','testPhotoProcessingRemovesPrivateMetadataAndBackupRejectsItsReintroduction','testNativeJavaScriptCoreRunsFrozenMachineAndProjectionCorpus','testWithdrawCheckpointsAndRetiresOldPayloadsThenUpdatesRegisteredNote','testWithdrawLeavesHandEditedManagedBlockAsVisibleConflict','testStoryPDFPaginatesChineseAndReopensSavedSnapshotAfterSourceDeletion','testClosingComposerKeepsDraftUntilExplicitSave','testStoryConfirmationPersistsAndOpensActualPDF','testBaselineUpgradePreservesV1Task']
 required.append('testShareFileStaysUntilSystemCompletionAndChangedExportIsNeverDeleted')
+required.append('testTypedReviewShortcutAppendSurvivesPendingDebounceAndPreservesAllEdits')
+required.append('testNewReviewShortcutAppendCarriesLegacyDraftWithoutSavingFact')
 assert all(re.search(r"Test Case .* "+re.escape(name)+r"\]' passed",log) for name in required), 'A required release test did not actually pass'
 assert re.search(r'Executed (?:[5-9][0-9]|[1-9][0-9]{2,}) tests, with 0 failures',log), 'Native/UI test count is unexpectedly small'
 assert 'testCreateTaskSurvivesRelaunch' in Path('dist/baseline-install.log').read_text(), 'Old app installation gate missing'
