@@ -15,6 +15,9 @@ struct ComposerView: View {
     @Environment(\.dismiss) private var dismiss
     let kind: ComposerKind
     var initialDate = Date()
+    var initialGoalID: UUID?
+    var prefilledTitle = ""
+    var initialTaskID: UUID?
     @State private var title = ""
     @State private var note = ""
     @State private var start = Date()
@@ -24,8 +27,8 @@ struct ComposerView: View {
     @State private var isCommitment = false
     @State private var value = ""
     @State private var unit = "次"
-    @State private var mood = 3
-    @State private var discard = false
+    @State private var mood: Int?
+    @State private var saved = false
     @FocusState private var titleFocused: Bool
 
     var body: some View {
@@ -51,27 +54,40 @@ struct ComposerView: View {
                     Section { Text(goal.title).font(.headline); TextField("当前累计成果（\(goal.unit)）", text: $value).keyboardType(.decimalPad); TextField("这次读数的依据或说明", text: $note, axis: .vertical).lineLimit(3...5) }
                     Section { Text("读数由你明确记录，不从计时、任务或位置自动推算。") .foregroundStyle(.secondary) }
                 case .review(let day):
-                    Section { Text(day.formatted(date: .complete, time: .omitted)).foregroundStyle(.secondary); Picker("今天的感受", selection: $mood) { Text("低落").tag(1); Text("有点累").tag(2); Text("平静").tag(3); Text("不错").tag(4); Text("很充实").tag(5) } }
+                    Section { Text(day.formatted(date: .complete, time: .omitted)).foregroundStyle(.secondary); Picker("今天的感受", selection: $mood) { Text("不记录").tag(Int?.none); Text("低落").tag(Optional(1)); Text("有点累").tag(Optional(2)); Text("平静").tag(Optional(3)); Text("不错").tag(Optional(4)); Text("很充实").tag(Optional(5)) } }
                     Section("哪些值得记住？") { TextField("今天发生了什么？有哪些小小的进步，或想留给明天的话？", text: $note, axis: .vertical).lineLimit(8...14).accessibilityIdentifier("reviewText") }
                 }
             }
             .navigationTitle(kind.title).navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("取消", systemImage: "xmark") { if title.isEmpty && note.isEmpty && value.isEmpty { dismiss() } else { discard = true } } }
+                ToolbarItem(placement: .cancellationAction) { Button("关闭", systemImage: "xmark") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) { Button("保存", systemImage: "checkmark", action: save).disabled(!canSave).accessibilityIdentifier("saveComposer") }
             }
-            .confirmationDialog("放弃未保存的内容？", isPresented: $discard, titleVisibility: .visible) { Button("放弃", role: .destructive) { dismiss() }; Button("继续编辑", role: .cancel) {} }
             .onAppear {
                 let cal = Calendar.current
                 start = cal.date(bySettingHour: cal.component(.hour, from: Date()), minute: 0, second: 0, of: initialDate) ?? initialDate
                 end = start.addingTimeInterval(3600)
                 if case .goal = kind { end = cal.date(byAdding: .month, value: 3, to: Date()) ?? end }
+                goalID = initialGoalID; taskID = initialTaskID; title = prefilledTitle
+                if let draft = EditorDrafts.load(draftKey) {
+                    title = draft["title"] ?? title; note = draft["note"] ?? ""; value = draft["value"] ?? ""; unit = draft["unit"] ?? "次"
+                    goalID = draft["goalID"].flatMap(UUID.init(uuidString:)) ?? initialGoalID; taskID = draft["taskID"].flatMap(UUID.init(uuidString:)) ?? initialTaskID
+                    if let number = draft["start"].flatMap(Double.init) { start = Date(timeIntervalSince1970: number) }
+                    if let number = draft["end"].flatMap(Double.init) { end = Date(timeIntervalSince1970: number) }
+                    mood = draft["mood"].flatMap(Int.init); isCommitment = draft["commitment"] == "true"
+                }
             }
-        }.presentationDetents([.large]).interactiveDismissDisabled(!title.isEmpty || !note.isEmpty || !value.isEmpty)
+            .onDisappear {
+                if !saved && (!title.isEmpty || !note.isEmpty || !value.isEmpty) {
+                    EditorDrafts.save(draftKey, fields: ["title": title, "note": note, "value": value, "unit": unit, "start": String(start.timeIntervalSince1970), "end": String(end.timeIntervalSince1970), "goalID": goalID?.uuidString ?? "", "taskID": taskID?.uuidString ?? "", "mood": mood.map(String.init) ?? "", "commitment": String(isCommitment)])
+                }
+            }
+        }.presentationDetents([.large])
     }
     func titleField(_ placeholder: String) -> some View { TextField(placeholder, text: $title, axis: .vertical).font(.title3).lineLimit(1...3).focused($titleFocused).accessibilityIdentifier("composerTitle") }
-    var taskPicker: some View { Picker("关联任务", selection: $taskID) { Text("独立记录").tag(UUID?.none); ForEach(store.data.tasks.filter { $0.completedAt == nil }) { Text($0.title).tag(Optional($0.id)) } } }
-    var number: Double? { Double(value.replacingOccurrences(of: ",", with: ".")) }
+    var draftKey: String { kind.id + (initialGoalID.map { ":" + $0.uuidString } ?? "") + (initialTaskID.map { ":" + $0.uuidString } ?? "") + (prefilledTitle.isEmpty ? "" : ":" + LifeStore.fingerprint(Data(prefilledTitle.utf8))) }
+    var taskPicker: some View { Picker("关联任务", selection: $taskID) { Text("独立记录").tag(UUID?.none); ForEach(store.data.tasks.filter(\.isOpen)) { Text($0.title).tag(Optional($0.id)) } } }
+    var number: Double? { decimalValue(value) }
     var canSave: Bool {
         switch kind {
         case .review: return !note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -93,6 +109,6 @@ struct ComposerView: View {
         case .measurement(let goal): success = store.addMeasurement(LifeMeasurement(goalID: goal.id, value: number!, note: note))
         case .review(let day): success = store.addReview(LifeReview(day: LifeSnapshot.dayKey(day), reflection: note.trimmingCharacters(in: .whitespacesAndNewlines), mood: mood))
         }
-        if success { dismiss() }
+        if success { saved = true; EditorDrafts.remove(draftKey); dismiss() }
     }
 }

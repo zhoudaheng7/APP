@@ -46,9 +46,11 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
     @State private var updates = UpdateService()
-    @State private var backup: URL?
+    @State private var exportFile: PrivateExport?
+    @State private var exportURL: URL?
+    @State private var notifications = LifeNotifications.shared
     @State private var restorePicker = false
-    @State private var restoreCandidate: LifeSnapshot?
+    @State private var restoreCandidate: LifeBackup?
     var version: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.1.0" }
     var body: some View {
         List {
@@ -65,10 +67,19 @@ struct SettingsView: View {
             }
             Section("我的数据") {
                 Label("记录保存在这台 iPhone 上", systemImage: "lock.shield")
-                Button("准备导出备份", systemImage: "square.and.arrow.up") { backup = store.exportBackup() }
-                if let backup { ShareLink(item: backup) { Label("保存或分享备份文件", systemImage: "doc") } }
+                Button("导出完整备份", systemImage: "square.and.arrow.up") { share(store.exportBackup()) }.disabled(exportURL != nil)
+                Button("导出可读文字", systemImage: "doc.text") { share(store.readableExport()) }.disabled(exportURL != nil)
                 Button("从备份恢复", systemImage: "arrow.clockwise.icloud") { restorePicker = true }
                 Text("备份包含你的文字和精确位置。请保存到可信位置。恢复会替换 朝屿当前记录，建议先导出当前备份。") .font(.caption).foregroundStyle(.secondary)
+            }
+            Section("提醒与快捷指令") {
+                Button("主动启用计划提醒", systemImage: "bell") { Task { await notifications.authorize(plans: store.data.plans) } }
+                if !notifications.message.isEmpty { Text(notifications.message).font(.caption).foregroundStyle(.secondary) }
+                Text("在系统“快捷指令”中搜索朝屿，可记任务、开始/结束投入、记复盘草稿。操作要求解锁手机；不会自动完成任务或写系统日历。") .font(.caption).foregroundStyle(.secondary)
+                NavigationLink("自动到访与定位状态") { VisitInboxView() }
+            }
+            Section("本版能力") {
+                Text("桌面小组件与灵动岛需要独立的苹果签名描述文件，现有签名条件尚不具备。这两项不作为本版已交付能力。") .font(.caption).foregroundStyle(.secondary)
             }
             if let configured = Bundle.main.object(forInfoDictionaryKey: "LifeOSWorkbenchURL") as? String,
                let url = URL(string: configured), url.scheme == "https" {
@@ -76,7 +87,7 @@ struct SettingsView: View {
             }
             Section("使用边界") {
                 Text("计划与实际分开保存。计时不自动完成任务，位置和路线不自动证明活动或成果。")
-                Text("地点记忆为手动记录；路线只在你主动开启且 App 前台打开时采集。系统日历与 Obsidian 同步尚未启用。")
+                Text("自动到访须主动开启；短路线须主动开始，每段可选择是否允许后台。日历只在你明确操作时读取、导入或打开系统编辑器。")
             }.font(.subheadline).foregroundStyle(.secondary)
         }.navigationTitle("我的朝屿").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } }
@@ -85,14 +96,33 @@ struct SettingsView: View {
                     let url = try result.get(); let access = url.startAccessingSecurityScopedResource(); defer { if access { url.stopAccessingSecurityScopedResource() } }
                     let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
                     guard size <= 128 * 1024 * 1024 else { throw LifeError.message("备份文件过大。") }
-                    let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .millisecondsSince1970
-                    let candidate = try decoder.decode(LifeSnapshot.self, from: Data(contentsOf: url))
-                    try candidate.validate(); restoreCandidate = candidate
+                    restoreCandidate = try LifeStore.decodeBackup(Data(contentsOf: url))
                 } catch { store.error = "无法读取此备份，当前数据未改变。" }
             }
             .alert("用备份替换当前 朝屿记录？", isPresented: Binding(get: { restoreCandidate != nil }, set: { if !$0 { restoreCandidate = nil } })) {
                 Button("取消", role: .cancel) { restoreCandidate = nil }
-                Button("恢复", role: .destructive) { if let candidate = restoreCandidate { location.stopRoute(); _ = store.commit(kind: "backup.restore", id: UUID()) { $0 = candidate } }; restoreCandidate = nil }
-            } message: { Text("仅替换 朝屿记录。此操作会覆盖当前数据，请确认已经导出需要保留的备份。") }
+                Button("恢复", role: .destructive) { if let candidate = restoreCandidate, store.restoreBackup(candidate) { location.pauseAfterRestore() }; restoreCandidate = nil }
+            } message: { Text(restoreSummary) }
+            .sheet(item: $exportFile, onDismiss: cleanupExport) { PrivateShareSheet(url: $0.url) }
     }
+    var restoreSummary: String {
+        guard let backup = restoreCandidate else { return "" }
+        return "此备份包含\(backup.snapshot.tasks.count)个任务、\(backup.snapshot.reviews.count)篇复盘、\(backup.snapshot.photos.count)张照片副本。将替换当前记录；本机已删除的内容不会从旧备份复活。恢复后自动到访暂停，未结束的路线等待确认继续。请先导出当前备份。"
+    }
+    func share(_ url: URL?) { if let url { exportURL = url; exportFile = PrivateExport(url: url) } }
+    func cleanupExport() {
+        guard let url = exportURL else { return }
+        let allowed = ["Dayisle-private-backup.json","Dayisle-readable.md"]
+        if url.deletingLastPathComponent().standardizedFileURL == FileManager.default.temporaryDirectory.standardizedFileURL && allowed.contains(url.lastPathComponent) {
+            do { try FileManager.default.removeItem(at: url) } catch { store.error = "导出的临时副本未能清除，可再次打开设置后重试导出。" }
+        }
+        exportURL = nil
+    }
+}
+
+struct PrivateExport: Identifiable { let id = UUID(); let url: URL }
+struct PrivateShareSheet: UIViewControllerRepresentable {
+    let url: URL
+    func makeUIViewController(context: Context) -> UIActivityViewController { UIActivityViewController(activityItems: [url], applicationActivities: nil) }
+    func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
 }

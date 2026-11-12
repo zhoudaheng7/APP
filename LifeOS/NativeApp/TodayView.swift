@@ -5,7 +5,7 @@ struct TodayView: View {
     @State private var day = Date()
     @State private var composer: ComposerKind?
     @State private var settings = false
-    var openTasks: [LifeTask] { store.data.tasks.filter { $0.completedAt == nil } }
+    var openTasks: [LifeTask] { store.data.tasks.filter(\.isOpen).sorted { ($0.priority ?? 0) > ($1.priority ?? 0) } }
     var sessions: [LifeSession] { store.data.sessions.filter { overlapsDay($0.start, $0.end ?? Date(), day: day, zone: TimeZone(identifier: $0.timeZone) ?? .current) }.sorted { $0.start < $1.start } }
     var plans: [LifePlan] { store.data.plans.filter { !$0.cancelled && overlapsDay($0.start, $0.end, day: day, zone: TimeZone(identifier: $0.timeZone) ?? .current) }.sorted { $0.start < $1.start } }
 
@@ -24,7 +24,7 @@ struct TodayView: View {
                     }
                     HStack(spacing: 24) {
                         metric("已完成", "\(store.data.tasks.filter { $0.completedAt.map { Calendar.current.isDate($0, inSameDayAs: day) } ?? false }.count)")
-                        metric("已确认投入", minutesText(sessions.filter(\.confirmed).reduce(0) { $0 + clippedSeconds($1.start, $1.end ?? Date(), day: day, zone: TimeZone(identifier: $1.timeZone) ?? .current) }))
+                        metric("已确认投入", minutesText(store.data.unionActualSeconds(from: Calendar.current.startOfDay(for: day), to: Calendar.current.date(byAdding: .day, value: 1, to: Calendar.current.startOfDay(for: day))!)))
                     }
                     HStack {
                         Button { shiftDay(-1) } label: { Image(systemName: "chevron.left") }.accessibilityLabel("前一天")
@@ -61,11 +61,11 @@ struct TodayView: View {
                         HStack(alignment: .top, spacing: 12) {
                             Button { store.completeTask(task) } label: { Image(systemName: "circle").font(.title2) }
                                 .buttonStyle(.plain).foregroundStyle(.teal).accessibilityLabel("完成\(task.title)")
-                            VStack(alignment: .leading, spacing: 4) {
+                            NavigationLink { TaskDetailView(taskID: task.id) } label: { VStack(alignment: .leading, spacing: 4) {
                                 Text(task.title).font(.body.weight(.medium))
                                 if !task.note.isEmpty { Text(task.note).font(.caption).foregroundStyle(.secondary) }
                                 if let goal = store.data.goals.first(where: { $0.id == task.goalID }) { Label(goal.title, systemImage: "scope").font(.caption).foregroundStyle(.teal) }
-                            }
+                            } }
                             Spacer()
                             Button { _ = store.startSession(title: task.title, taskID: task.id) } label: { Image(systemName: "play.circle") }
                                 .buttonStyle(.borderless).disabled(store.runningSession != nil).accessibilityLabel("为\(task.title)开始计时")
@@ -73,26 +73,27 @@ struct TodayView: View {
                     }
                 }
                 Button { composer = .task } label: { Label("添加任务", systemImage: "plus") }.accessibilityIdentifier("addTask")
+                NavigationLink("查看全部任务") { TaskLibraryView() }
             } header: { Text("想完成的事") }
 
             Section("计划与承诺") {
                 if plans.isEmpty { Text("留白也可以是一种安排。") .foregroundStyle(.secondary) }
                 ForEach(plans) { plan in
-                    HStack(alignment: .top, spacing: 12) {
+                    NavigationLink { PlanEditor(planID: plan.id) } label: { HStack(alignment: .top, spacing: 12) {
                         RoundedRectangle(cornerRadius: 2).fill(plan.isCommitment ? Color.orange : Color.teal).frame(width: 3)
                         VStack(alignment: .leading, spacing: 4) {
                             Text(plan.title).font(.headline)
                             Text("\(plan.start.formatted(date: .omitted, time: .shortened)) – \(plan.end.formatted(date: Calendar.current.isDate(plan.start, inSameDayAs: plan.end) ? .omitted : .abbreviated, time: .shortened))").font(.subheadline).foregroundStyle(.secondary)
                             Text(plan.isCommitment ? "日历承诺 · 仅本机记录" : "私人计划").font(.caption).foregroundStyle(plan.isCommitment ? .orange : .teal)
                         }
-                    }.padding(.vertical, 4)
+                    }.padding(.vertical, 4) }
                 }
             }
 
             Section("实际发生") {
                 if sessions.isEmpty { Text("开始计时，留下真实投入。") .foregroundStyle(.secondary) }
                 ForEach(sessions) { session in
-                    VStack(alignment: .leading, spacing: 7) {
+                    NavigationLink { SessionEditor(sessionID: session.id) } label: { VStack(alignment: .leading, spacing: 7) {
                         HStack { Text(session.title).font(.headline); Spacer(); Text(minutesText(clippedSeconds(session.start, session.end ?? Date(), day: day, zone: TimeZone(identifier: session.timeZone) ?? .current))).font(.subheadline.monospacedDigit()) }
                         HStack {
                             Label(session.confirmed ? "已核对" : session.end == nil ? "计时中" : "待核对", systemImage: session.confirmed ? "checkmark.seal" : "clock")
@@ -100,7 +101,7 @@ struct TodayView: View {
                             Spacer()
                             if session.end != nil && !session.confirmed { Button("确认实际投入") { store.confirmSession(session) }.font(.caption).buttonStyle(.borderless) }
                         }
-                    }.padding(.vertical, 5)
+                    }.padding(.vertical, 5) }
                 }
             }
 
@@ -108,6 +109,7 @@ struct TodayView: View {
                 if let review = store.data.reviews.first(where: { $0.day == LifeSnapshot.dayKey(day) && $0.timeZone == TimeZone.current.identifier }) {
                     Label("今天的复盘已留下", systemImage: "sparkles").foregroundStyle(.teal)
                     Text(review.reflection)
+                    NavigationLink("查看与修订") { ReviewDetailView(reviewID: review.id) }
                 } else {
                     Button { composer = .review(day) } label: { Label("给这一天写几句话", systemImage: "square.and.pencil") }
                 }
@@ -131,23 +133,27 @@ struct PlansView: View {
     @Environment(LifeStore.self) private var store
     @State private var date = Date()
     @State private var add = false
-    var plans: [LifePlan] { store.data.plans.filter { !$0.cancelled && overlapsDay($0.start, $0.end, day: date, zone: TimeZone(identifier: $0.timeZone) ?? .current) }.sorted { $0.start < $1.start } }
+    @State private var calendar = false
+    @State private var includeCancelled = false
+    var plans: [LifePlan] { store.data.plans.filter { (includeCancelled || !$0.cancelled) && $0.deletedAt == nil && overlapsDay($0.start, $0.end, day: date, zone: TimeZone(identifier: $0.timeZone) ?? .current) }.sorted { $0.start < $1.start } }
     var body: some View {
         List {
-            Section { DatePicker("选择日期", selection: $date, displayedComponents: .date).datePickerStyle(.graphical) }
+            Section { DatePicker("选择日期", selection: $date, displayedComponents: .date).datePickerStyle(.graphical); Toggle("显示已取消安排", isOn: $includeCancelled); Button("读取与导入苹果日历", systemImage: "calendar.badge.clock") { calendar = true } }
             Section("这一天的安排") {
                 if plans.isEmpty { ContentUnavailableView("时间，留给重要的事", systemImage: "calendar", description: Text("私人计划与已有承诺分开记录。")) }
                 ForEach(plans) { plan in
-                    VStack(alignment: .leading, spacing: 7) {
+                    NavigationLink { PlanEditor(planID: plan.id) } label: { VStack(alignment: .leading, spacing: 7) {
                         HStack { Text(plan.title).font(.headline); Spacer(); Image(systemName: plan.isCommitment ? "calendar.badge.clock" : "rectangle.dashed") .foregroundStyle(plan.isCommitment ? .orange : .teal) }
                         Text(plan.start.formatted(date: .omitted, time: .shortened) + " – " + plan.end.formatted(date: .abbreviated, time: .shortened)).font(.subheadline).foregroundStyle(.secondary)
                         Text(plan.isCommitment ? "本机承诺记录" : "私人计划 · 不写系统日历").font(.caption).foregroundStyle(.secondary)
-                    }.padding(.vertical, 5)
+                        if plan.cancelled { Text("已取消").foregroundStyle(.secondary) }
+                    }.padding(.vertical, 5) }
                         .swipeActions { Button("取消", role: .destructive) { store.cancelPlan(plan) } }
                 }
             }
         }.navigationTitle("计划")
             .toolbar { Button { add = true } label: { Image(systemName: "plus") }.accessibilityLabel("添加计划") }
             .sheet(isPresented: $add) { ComposerView(kind: .plan, initialDate: date) }
+            .sheet(isPresented: $calendar) { CalendarImportView() }
     }
 }

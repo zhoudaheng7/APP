@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main struct LifeOSApp: App {
-    @State private var store = LifeStore()
+    @State private var store = LifeStore.shared
     @State private var location = LifeLocation()
     @AppStorage("lifeos.onboarded.v1") private var onboarded = false
     @Environment(\.scenePhase) private var scenePhase
@@ -19,8 +19,11 @@ import SwiftUI
             .alert("未能完成操作", isPresented: Binding(get: { store.error != nil }, set: { if !$0 { store.error = nil } })) {
                 Button("知道了", role: .cancel) { store.error = nil }
             } message: { Text(store.error ?? "") }
-            .onAppear { location.store = store }
-            .onChange(of: scenePhase) { _, phase in location.setForeground(phase == .active) }
+            .onAppear { location.attach(store) }
+            .onChange(of: scenePhase) { _, phase in
+                location.setForeground(phase == .active)
+                if phase == .active { Task { await LifeNotifications.shared.reschedule(store.data.plans) } }
+            }
         }
     }
 }

@@ -25,8 +25,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.lifeos.personal
-        MARKETING_VERSION: 0.1.0
-        CURRENT_PROJECT_VERSION: 2
+        MARKETING_VERSION: 0.2.0
+        CURRENT_PROJECT_VERSION: 3
         GENERATE_INFOPLIST_FILE: NO
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
     info:
@@ -41,7 +41,10 @@ targets:
         UILaunchScreen: {}
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
         UISupportedInterfaceOrientations~ipad: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
-        NSLocationWhenInUseUsageDescription: 仅在你主动定位、保存地点或开始前台路线时使用位置，精确位置只保存在本机。
+        NSLocationWhenInUseUsageDescription: 用于你主动定位、保存地点与开始短路线；精确位置保存在本机。
+        NSLocationAlwaysAndWhenInUseUsageDescription: 仅在你主动开启自动到访时，用低功耗到访事件帮助回顾去过的地方；你可以随时暂停。
+        NSCalendarsFullAccessUsageDescription: 仅在你点击读取日历后，显示所选日期事件，并由你逐条选择导入为承诺。
+        UIBackgroundModes: [location]
         LifeOSUpdateManifestURL: ''
         LifeOSWorkbenchURL: ''
     scheme:
