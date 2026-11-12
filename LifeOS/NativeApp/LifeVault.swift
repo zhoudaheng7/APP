@@ -1,7 +1,7 @@
 import Foundation
 import Observation
 
-struct ProjectionMapping: Codable { var path: String; var state = "active" }
+struct ProjectionMapping: Codable { var path: String; var state = "active"; var lastCommitID: String? }
 struct VaultBinding: Codable {
     var bookmark: Data
     var datasetID: UUID
@@ -26,7 +26,12 @@ struct DisclosurePreviewRecord: Identifiable {
         title = row["title"] as? String ?? row["dayKey"] as? String ?? "不披露标题"
         reflection = row["reflection"] as? String
         let labels = ["lifecycleStatus":"状态","runState":"计时状态","factState":"核对状态","plannedStart":"开始（UTC）","plannedEnd":"结束（UTC）","start":"开始（UTC）","end":"结束（UTC）","actualStart":"实际开始（UTC）","actualEnd":"实际结束（UTC）","dayKey":"归属日期","attributionTimeZone":"归属时区","calendarTimeZone":"日历时区","localStartDate":"全天开始日期","localEndDateExclusive":"全天截止（不含）","allDay":"全天","taskID":"已选择任务的同步身份"]
-        fields = labels.keys.sorted().compactMap { key in guard let value = row[key] else { return nil }; return DisclosurePreviewField(id:labels[key]!,value:value is NSNull ? "未知/未结束":String(describing:value)) }
+        let states = ["open":"待办","completed":"已完成","cancelled":"已取消","archived":"已归档","active":"有效安排","running":"计时中","stopped":"已结束","confirmed":"已核对","inferred":"待核对","rejected":"已排除"]
+        fields = labels.keys.sorted().compactMap { key in
+            guard let value = row[key] else { return nil }; let text: String
+            if value is NSNull { text = "未知/未结束" } else if key == "allDay", let flag = value as? Bool { text = flag ? "是":"否" } else { let raw = String(describing:value); text = states[raw] ?? raw }
+            return DisclosurePreviewField(id:labels[key]!,value:text)
+        }
     }
 }
 private struct PublicationPreview {
@@ -53,6 +58,9 @@ private struct PublicationPreview {
     private var lastDisk = VaultDisk()
     private var projectionCandidates: [[String:Any]] = []
     private(set) var projectionIssues: [String] = []
+    private(set) var privacyCleanupPending = false
+    private var checkpointNeeded = false
+    var pendingMappedBlocksCount: Int { binding?.mappings.values.filter { $0.lastCommitID != store.data.disclosure.lastCommitID }.count ?? 0 }
     private(set) var incoming: [IncomingReview] = []
     private let store: LifeStore
     private let directory: URL?
@@ -137,6 +145,8 @@ private struct PublicationPreview {
                 let verified = try engine.call("verify",["commits":disk.commits,"files":disk.files,"datasetID":settings.datasetID.wire])
                 guard verified["status"] as? String == "promoted" else { throw LifeError.message("原同步账本校验失败，未覆盖。") }
                 if let floor = settings.lastCommitID, !(verified["ancestry"] as? [String] ?? []).contains(floor) { throw LifeError.message("目录尚未包含本机最近的发布记录，已阻止旧同步覆盖。") }
+                checkpointNeeded = verified["needsCheckpoint"] as? Bool ?? false; privacyCleanupPending = checkpointNeeded || settings.privacyCleanupPending == true
+                verifiedCommit = verified["commit"] as? [String:Any]; projectionKeys = verified["projectionKeys"] as? [String:String] ?? [:]; lastDisk = disk
             }
             if pending != nil { try clearPending(binding) }
             let selectedIDs = Set((settings.grants ?? []).filter { $0.entityType == "ActualSession" }.map(\.entityID))
@@ -153,31 +163,84 @@ private struct PublicationPreview {
             publicationCandidate = PublicationPreview(candidate:candidate,files:files,disk:disk,sourceFingerprint:try publicFingerprint(binding),createdAt:now)
             let withdrawn = (policy["stamps"] as? [[String:Any]] ?? []).filter { $0["state"] as? String == "withdrawn" }.count
             message = "已准备完整预览：\(rows.count)条当前授权记录，本次撤回\(withdrawn)条。同步身份与摘要历史保留以防旧内容重现；本机原记录保留。确认前尚未写入Vault。"
+            if candidate["needsCheckpoint"] as? Bool == true { message += " 撤回会再写一份完全相同、同一时刻的保护检查点，再清理早期正式大代；中断时明确标记待完成。" }
         } catch { message = error.localizedDescription }
     }
     func publish() async {
         guard !busy, let binding, let prepared = publicationCandidate else { message = "先完整预览，再确认发布。"; return }; busy = true; defer { busy = false }
+        let initialHead = verifiedCommit?["commitID"] as? String
         do {
             guard store.refreshForExternalUse(), Date().timeIntervalSince(prepared.createdAt) <= 900, try publicFingerprint(binding) == prepared.sourceFingerprint else { publicationCandidate = nil; throw LifeError.message("记录、披露选择或发布设置在预览后变化，或预览超过15分钟。请重新预览；这次没有写入。") }
-            let candidate = prepared.candidate, settings = store.data.disclosure
-            guard let engine = runtime, let commit = candidate["commit"] as? [String:Any], let commitID = commit["commitID"] as? String, let commitPath = candidate["commitPath"] as? String else { throw LifeError.invalidValue }
+            guard let engine = runtime else { throw LifeError.invalidValue }
             let root = try root(), access = root.startAccessingSecurityScopedResource(); defer { if access { root.stopAccessingSecurityScopedResource() } }
-            let files = prepared.files, expected = Set(prepared.disk.commits)
-            guard try pendingWrite(binding) == nil else { throw LifeError.message("上次发布尚待恢复，请重新完整预览。") }
-            let receipt = PendingVaultWrite(bindingID:binding.id,datasetID:binding.datasetID,writerID:binding.writerID,commitPath:commitPath,fileHashes:files.mapValues(hashBytes),parentHashes:prepared.disk.commits.map { hashBytes(Data(base64Encoded:$0)!) })
-            try receipt.validate(); let receiptBytes = try JSONEncoder().encode(receipt)
-            guard receiptBytes.count <= 2*1024*1024 else { throw LifeError.invalidValue }
-            try receiptBytes.write(to:pendingURL(binding),options:[.atomic,.completeFileProtectionUntilFirstUserAuthentication])
-            try await Task.detached { try VaultFiles.writePublication(root:root,files:files,commitPath:commitPath,expectedCommits:expected,datasetID:settings.datasetID.wire,commitID:commitID) }.value
-            _ = try engine.call("adopt",["commitID":commitID]); verifiedCommit = commit; projectionKey = candidate["projectionKey"] as? String; projectionKeys = candidate["projectionKeys"] as? [String:String] ?? [:]
-            var published = prepared.disk; published.commits.append(files[commitPath]!.base64EncodedString()); published.files.merge(files.mapValues { $0.base64EncodedString() }) { _,new in new }; lastDisk = published
-            if store.commit(kind: "vault.published", id: settings.datasetID, { $0.disclosure.lastCommitID = commitID; $0.disclosure.lastSequence = (commit["generation"] as? NSNumber)?.int64Value ?? 0; $0.disclosure.lastPublishedGrants = settings.grants ?? [] }) {
-                message = "预览的完整授权视图已发布。配套插件校验后替换当前视图；受管笔记块须另行核对并更新，外部/离线副本不会被自动抹去。"
-                if (try? publicFingerprint(binding)) != prepared.sourceFingerprint { message += " 发布过程中又有修改，后来的选择尚未发布，请重新预览。" }
-            } else { message = "同步代已发布，但本机发布回执保存失败；请先重新读取，不要更换数据集。" }
-            publicationCandidate = nil; projectionCandidates = []; projectionIssues = []
-            try clearPending(binding)
-        } catch { message = error.localizedDescription + " 若文件提供方曾中断，请重新读取核对提交状态；不要把失败当作撤回完成。" }
+            let needsCheckpoint = prepared.candidate["needsCheckpoint"] as? Bool ?? false
+            let needsCleanup = needsCheckpoint || privacyCleanupPending || store.data.disclosure.privacyCleanupPending == true
+            try await writeConfirmed(prepared,binding:binding,root:root,engine:engine,cleanupPending:needsCleanup)
+            if needsCheckpoint {
+                let next = try engine.call("checkpoint",["disk":["datasetID":binding.datasetID.wire,"commits":lastDisk.commits,"files":lastDisk.files]])
+                guard let encoded = next["files"] as? [String:String] else { throw LifeError.invalidValue }
+                var bytes: [String:Data] = [:]; for (path,base64) in encoded { guard let data = Data(base64Encoded:base64) else { throw LifeError.invalidValue }; bytes[path] = data }
+                let checkpoint = PublicationPreview(candidate:next,files:bytes,disk:lastDisk,sourceFingerprint:prepared.sourceFingerprint,createdAt:prepared.createdAt)
+                try await writeConfirmed(checkpoint,binding:binding,root:root,engine:engine,cleanupPending:needsCleanup)
+            }
+            let removed = try await retireLarge(root:root,engine:engine,binding:binding)
+            message = "完整授权视图已发布，已移除\(removed)个正式退役文件；永久身份/摘要证明保留。配套插件校验后采用新范围。另有\(pendingMappedBlocksCount)个已登记笔记块待核对更新；外部、手改或离线副本不作抹去承诺。"
+            if (try? publicFingerprint(binding)) != prepared.sourceFingerprint { message += " 发布过程中又有修改，后来的选择尚未发布，请重新预览。" }
+        } catch {
+            if initialHead != (verifiedCommit?["commitID"] as? String) || (try? pendingWrite(binding)) != nil { privacyCleanupPending = true; _ = store.commit(kind:"vault.cleanup-pending",id:binding.datasetID) { $0.disclosure.privacyCleanupPending = true } }
+            publicationCandidate = nil; message = error.localizedDescription + " 发布或保护清理未全部完成，请重新读取核对提交状态；不要把失败当作撤回完成。"
+        }
+    }
+    private func writeConfirmed(_ prepared: PublicationPreview, binding: VaultBinding, root: URL, engine: WireRuntime, cleanupPending: Bool) async throws {
+        let candidate = prepared.candidate
+        guard let commit = candidate["commit"] as? [String:Any], let commitID = commit["commitID"] as? String, let commitPath = candidate["commitPath"] as? String, let manifest = candidate["manifest"] as? [String:Any], let policy = (manifest["capabilities"] as? [String:Any])?["disclosure"] as? [String:Any], let rawGrants = policy["grants"] as? [[String:Any]] else { throw LifeError.invalidValue }
+        var grants: [DisclosureGrant] = []
+        for row in rawGrants { guard let type = row["entityType"] as? String, let rawID = row["entityID"] as? String, let id = UUID(uuidString:rawID), let text = row["text"] as? Bool else { throw LifeError.invalidValue }; grants.append(DisclosureGrant(entityType:type,entityID:id,text:text)) }
+        guard try pendingWrite(binding) == nil else { throw LifeError.message("上次发布尚待恢复，请重新完整预览。") }
+        let files = prepared.files, expected = Set(prepared.disk.commits)
+        let receipt = PendingVaultWrite(bindingID:binding.id,datasetID:binding.datasetID,writerID:binding.writerID,commitPath:commitPath,fileHashes:files.mapValues(hashBytes),parentHashes:prepared.disk.commits.map { hashBytes(Data(base64Encoded:$0)!) })
+        try receipt.validate(); let receiptBytes = try JSONEncoder().encode(receipt)
+        guard receiptBytes.count <= 2*1024*1024 else { throw LifeError.invalidValue }
+        let recoveryDirectory = try bindingURL().deletingLastPathComponent(), names = try FileManager.default.contentsOfDirectory(atPath:recoveryDirectory.path).filter { $0.hasPrefix("PendingVaultPublication-") && $0.hasSuffix(".json") }
+        guard names.count < 16 else { throw LifeError.message("本机已有16份发布恢复凭据，请先核对原绑定，不再堆积。") }
+        try receiptBytes.write(to:pendingURL(binding),options:[.atomic,.completeFileProtectionUntilFirstUserAuthentication])
+        try await Task.detached { try VaultFiles.writePublication(root:root,files:files,commitPath:commitPath,expectedCommits:expected,datasetID:binding.datasetID.wire,commitID:commitID) }.value
+        _ = try engine.call("adopt",["commitID":commitID]); verifiedCommit = commit; projectionKey = candidate["projectionKey"] as? String; projectionKeys = candidate["projectionKeys"] as? [String:String] ?? [:]
+        checkpointNeeded = candidate["needsCheckpoint"] as? Bool ?? false; privacyCleanupPending = cleanupPending
+        var published = prepared.disk; published.commits.append(files[commitPath]!.base64EncodedString()); published.files.merge(files.mapValues { $0.base64EncodedString() }) { _,new in new }
+        if let manifestPath = commit["manifestPath"] as? String { let rootPath = String(manifestPath.dropLast("/generation-manifest.json".count)); published.files = published.files.filter { $0.key.hasSuffix("/generation-manifest.json") || $0.key.hasPrefix(rootPath + "/") } }
+        lastDisk = published
+        guard store.commit(kind:"vault.published",id:binding.datasetID,{ state in state.disclosure.lastCommitID = commitID; state.disclosure.lastSequence = (commit["generation"] as? NSNumber)?.int64Value ?? 0; state.disclosure.lastPublishedGrants = grants; state.disclosure.privacyCleanupPending = cleanupPending }) else { throw LifeError.message("同步代已发布，但本机回执未能保存，请重新读取核对。") }
+        publicationCandidate = nil; projectionCandidates = []; projectionIssues = []; try clearPending(binding)
+    }
+    private func retireLarge(root: URL, engine: WireRuntime, binding: VaultBinding) async throws -> Int {
+        guard !checkpointNeeded, let head = verifiedCommit?["commitID"] as? String else { throw LifeError.message("保护检查点尚未完成，不能清除上一大代。") }
+        var removed = 0, contentBytes = 0
+        for _ in 0..<30 {
+            let inventory = try await Task.detached { try VaultFiles.coordinated(root,write:false) { try VaultFiles.inventory(root:$0) } }.value
+            let plan = try engine.call("retire-plan",["datasetID":binding.datasetID.wire,"commits":lastDisk.commits,"files":lastDisk.files,"inventory":inventory])
+            let count = plan["eligibleCount"] as? Int ?? 0
+            if count == 0 {
+                if store.data.disclosure.privacyCleanupPending == true { guard store.commit(kind:"vault.cleanup",id:binding.datasetID,{ $0.disclosure.privacyCleanupPending = false }) else { throw LifeError.message("历史文件已处理，但本机清理回执未保存。") } }
+                privacyCleanupPending = false; return removed
+            }
+            guard let entries = plan["entries"] as? [[String:Any]], let keep = plan["keep"] as? [String] else { throw LifeError.invalidValue }
+            let paths = entries.compactMap { $0["path"] as? String }
+            let bytes = try await Task.detached { try VaultFiles.retirementFiles(root:root,paths:paths) }.value
+            let checked = try engine.call("check-retirement",["files":bytes.map { ["path":$0.key,"bytes":$0.value] }])
+            guard let rows = checked["files"] as? [[String:String]], !rows.isEmpty else { throw LifeError.message("退役清理未取得进展，原件保留。") }
+            let proofs = try rows.map { row -> RetiredFileProof in guard let path = row["path"], let sha = row["sha256"] else { throw LifeError.invalidValue }; return RetiredFileProof(path:path,sha256:sha) }
+            contentBytes += checked["contentBytes"] as? Int ?? 0
+            guard contentBytes <= 128*1024*1024, removed + proofs.count <= 15000 else { throw LifeError.message("本次退役清理达到128MB/15,000项预算，剩余内容保留。") }
+            let commits = Set(lastDisk.commits)
+            removed += try await Task.detached { try VaultFiles.removeRetired(root:root,files:proofs,keep:keep,head:head,expectedCommits:commits) }.value
+        }
+        throw LifeError.message("退役清理达到本次批次上限，剩余内容保留。")
+    }
+    func cleanupRetired() async {
+        guard !busy, let binding, let engine = runtime else { message = "先读取并校验当前同步代。"; return }; busy = true; defer { busy = false }
+        do { let root = try root(), access = root.startAccessingSecurityScopedResource(); defer { if access { root.stopAccessingSecurityScopedResource() } }; let count = try await retireLarge(root:root,engine:engine,binding:binding); message = "已移除\(count)个正式退役文件，当前/回退大代、永久证明和未知文件保留。" }
+        catch { privacyCleanupPending = true; _ = store.commit(kind:"vault.cleanup-pending",id:binding.datasetID) { $0.disclosure.privacyCleanupPending = true }; message = error.localizedDescription }
     }
     func setProjection(_ enabled: Bool) {
         guard !busy, var next = binding, next.projectionEnabled != enabled else { return }
@@ -186,6 +249,7 @@ private struct PublicationPreview {
         do { try persistBinding(next); projectionCandidates = []; publicationCandidate = nil; message = "笔记派生块设置已更改；重新发布同步代后才生效。" } catch { message = "设置未能保存，原授权不变。" }
     }
     func prepareProjection() async {
+        guard !store.data.disclosure.selectionPending else { message = "先发布新的披露选择，再更新受管块。"; return }
         guard !busy, let binding, binding.projectionEnabled, let engine = runtime, let commit = verifiedCommit, let head = commit["commitID"] as? String, !projectionKeys.isEmpty else { message = "请先开启派生块并发布新的完整同步代。"; return }
         busy = true; defer { busy = false }
         projectionCandidates = []; projectionIssues = []
@@ -215,7 +279,7 @@ private struct PublicationPreview {
             for candidate in projectionCandidates {
                 guard let path = candidate["path"] as? String, let base64 = candidate["bytes"] as? String, let bytes = Data(base64Encoded:base64), let originalHash = candidate["originalHash"] as? String, let day = candidate["dayKey"] as? String else { throw LifeError.invalidValue }
                 try await Task.detached { try VaultFiles.writeNote(root:root,relative:path,bytes:bytes,originalHash:originalHash,ledgerCommits:commits) }.value
-                binding.mappings[day] = ProjectionMapping(path:path); try persistBinding(binding); written += 1
+                binding.mappings[day] = ProjectionMapping(path:path,lastCommitID:verifiedCommit?["commitID"] as? String); try persistBinding(binding); written += 1
             }
             projectionCandidates = []
             message = projectionIssues.isEmpty ? "所有已登记受管块已更新到当前授权视图，块外文字保留。外部、手改或离线副本不作抹去承诺。":"已更新\(written)个安全受管块；仍有\(projectionIssues.count)个冲突未清理，请逐项处理。"

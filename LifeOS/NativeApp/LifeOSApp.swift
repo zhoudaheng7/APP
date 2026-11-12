@@ -99,7 +99,8 @@ func minutesText(_ seconds: TimeInterval) -> String {
 
 func attributedDayBounds(_ day: Date, zone: TimeZone) -> (Date, Date) {
     var calendar = Calendar(identifier: .gregorian); calendar.timeZone = zone
-    let parts = Calendar.current.dateComponents([.year, .month, .day], from: day)
+    var displayCalendar = Calendar(identifier:.gregorian); displayCalendar.timeZone = .current
+    let parts = displayCalendar.dateComponents([.year, .month, .day], from: day)
     let lower = calendar.date(from: parts)!
     return (lower, calendar.date(byAdding: .day, value: 1, to: lower)!)
 }

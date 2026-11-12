@@ -51,6 +51,11 @@ extension VaultFiles {
                 }
             }
             guard Set(parents) == Set(receipt.parentHashes), !protected.contains(receipt.generationRoot) else { throw LifeError.message("上次中断后账本已变化，未清理或覆盖同步文件。") }
+            let exchangeURL = base.appendingPathComponent(exchange)
+            if FileManager.default.fileExists(atPath:exchangeURL.path) {
+                let names = try FileManager.default.contentsOfDirectory(atPath:exchangeURL.path)
+                guard !names.contains(where:{ ["pins",".pins","pins.json","retention-pins.json"].contains($0.lowercased()) }) else { throw LifeError.message("存在保留标记，已停止中断文件清理。") }
+            }
             var owned: [URL] = [], total = 0
             for relative in receipt.fileHashes.keys.sorted() where relative != receipt.commitPath {
                 let raw = base.appendingPathComponent(exchange + "/" + relative)

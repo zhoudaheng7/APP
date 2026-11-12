@@ -12,7 +12,7 @@ concurrency:
 jobs:
   native-iphone:
     runs-on: macos-26-intel
-    timeout-minutes: 45
+    timeout-minutes: 75
     env:
       DAYISLE_TEST_MODE: unit
     defaults:
@@ -23,8 +23,10 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           fetch-depth: 0
-      - name: Build and test native iPhone app
-        run: bash tools/build-native.sh
+      - name: Prepare and compile native iPhone app
+        run: bash tools/build-native.sh prepare
+      - name: Run simulator data and applicable upgrade tests
+        run: bash tools/build-native.sh verify
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
@@ -34,3 +36,9 @@ jobs:
             !LifeOS/dist/Native.xcresult/**
           if-no-files-found: warn
           retention-days: 7
+      - name: Stop owned temporary simulator
+        if: always()
+        run: |
+          if [ -f dist/simulator-id.txt ]; then
+            xcrun simctl shutdown "$(cat dist/simulator-id.txt)" || true
+          fi

@@ -101,6 +101,9 @@ enum MediaMutation { case put(UUID, Data), remove(UUID) }
             let wireKinds = ["task":"Task","plan":"DraftPlan","commitment":"CalendarCommitment","actual":"ActualSession","review":"DailyReview"]
             let deletedGrants = Set(candidate.tombstones.compactMap { marker in wireKinds[marker.kind].map { $0 + ":" + marker.id.wire } })
             candidate.disclosure.grants = candidate.disclosure.grants?.filter { !deletedGrants.contains($0.id) }
+            // Sampling points themselves remain authoritative in the route. Only
+            // the superseded pending sampling notification is coalesced.
+            if kind == "route.point" { candidate.pendingChanges.removeAll { $0.kind == "route.point" && $0.entityID == id } }
             candidate.pendingChanges.append(LocalChange(kind: kind, entityID: id))
             try candidate.validate()
             let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .millisecondsSince1970; encoder.outputFormatting = [.sortedKeys]

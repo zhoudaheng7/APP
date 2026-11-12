@@ -21,12 +21,15 @@ struct VaultSettingsView: View {
                 Section("我决定披露什么") {
                     NavigationLink("逐项选择披露或撤回") { DisclosureSelectionView() }
                     Text("默认不披露。任务、计划、承诺、实际和日复盘可逐项选择，文字可单独关闭；精确位置、到访、路线、照片、EXIF、人物和私密目标不进入Vault。") .font(.subheadline)
-                    if store.data.disclosure.grants != store.data.disclosure.lastPublishedGrants { Text("披露选择尚未发布。") .foregroundStyle(.orange) }
+                    if store.data.disclosure.selectionPending { Text("披露选择尚未发布。") .foregroundStyle(.orange) }
+                    if service.privacyCleanupPending || store.data.disclosure.privacyCleanupPending == true { Text("历史包保护/清理尚未全部完成，不能当作历史副本已清除。") .foregroundStyle(.orange) }
+                    Button("核对并清理正式退役大代") { Task { await service.cleanupRetired() } }.disabled(service.busy)
                     Button("完整预览并准备发布", systemImage: "eye") { Task { await service.makePreview(); if service.publicationReady { preview = true } } }.disabled(service.busy)
                     Text("撤回保留手机原记录，配套新插件在校验新代后清除当前视图。旧受管块须另行更新；手改内容、旧插件和外部/离线副本不冒充已抹去。") .font(.caption).foregroundStyle(.secondary)
                 }
                 Section("可编辑笔记中的派生块") {
                     Toggle("允许在Dayisle目录写入受管块", isOn: Binding(get: { service.binding?.projectionEnabled ?? false }, set: { service.setProjection($0) })).disabled(service.busy)
+                    LabeledContent("已登记且待更新的笔记块",value:String(service.pendingMappedBlocksCount))
                     Text("开启后先发布新同步代，再核对和确认写入。只更新自己的标记块；块外文字保留。块被手改、重复或移走时会阻断，避免覆盖或复制你的内容。") .font(.caption).foregroundStyle(.secondary)
                     Button("核对派生块和笔记原文") { Task { await service.prepareProjection() } }.disabled(service.busy)
                     if service.projectionReady { Button("确认写入已核对的派生块") { Task { await service.writeProjection() } }.disabled(service.busy) }

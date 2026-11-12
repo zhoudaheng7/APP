@@ -3245,8 +3245,9 @@ var DayisleWire = (() => {
 
   // disclosure.mjs
   var DISCLOSURE = "dayisle.disclosure.v1";
+  var disclosureCheckpointNeeded = (verified) => historyByHandle.get(verified)?.checkpointNeeded ?? false;
   var TYPES = ["Task", "DraftPlan", "CalendarCommitment", "ActualSession", "DailyReview"];
-  var uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+  var uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
   var hash = /^[0-9a-f]{64}$/;
   var historyByHandle = /* @__PURE__ */ new WeakMap();
   var fail4 = (code) => {
@@ -3318,7 +3319,11 @@ var DayisleWire = (() => {
     if (!safe(epoch)) fail4("EPOCH_LIMIT");
     const stamps = [...history].filter(([k, v]) => !old.epoch || !same2(v, old.history.get(k) ?? null)).map(([, v]) => v).sort((a, b) => key(a).localeCompare(key(b)));
     const policy = { profile: DISCLOSURE, epoch, previousPolicyHash: old.policyHash, policyHash: hashJSON({ profile: DISCLOSURE, epoch, grants: selected }), grants: selected, stamps };
-    return { entities, tombstones, policy };
+    const checkpointNeeded = !old.epoch && old.history.size > 0 || old.grants.some((g) => {
+      const next = authorized.get(key(g));
+      return !next || g.text && !next.text;
+    });
+    return { entities, tombstones, policy, checkpointNeeded };
   }
   function validateDisclosure(input, verified, previous) {
     const files = Object.fromEntries(Object.entries(input.files).map(([p, v]) => [p, Buffer.from(v, "base64")]));
@@ -3327,7 +3332,7 @@ var DayisleWire = (() => {
     for (const id of ledger.ancestry) {
       const c = ledger.nodes.get(id), bytes = files[c.manifestPath];
       if (!bytes) fail4("HISTORY_MISSING");
-      const m = validateSchema(parseJSON(bytes), "manifest.schema.json");
+      const parsed = parseJSON(bytes), m = validateSchema(parsed, "manifest.schema.json");
       if (hashJSON(m) !== c.manifestHash || m.datasetID !== c.datasetID || m.writerInstanceID !== c.writerInstanceID || m.writerEpoch !== c.writerEpoch || m.generation !== c.generation) fail4("HISTORY_HASH");
       const p = m.capabilities.disclosure, required = m.requiredCapabilities.includes(DISCLOSURE);
       if (!required) {
@@ -3337,11 +3342,13 @@ var DayisleWire = (() => {
       }
       if (c.takeover !== null || ledger.stale.length) fail4("HANDOVER_UNSUPPORTED");
       if (!exact(p, ["profile", "epoch", "previousPolicyHash", "policyHash", "grants", "stamps"]) || p.profile !== DISCLOSURE || !safe(p.epoch) || !Array.isArray(p.stamps) || p.stamps.length > 1e4) fail4("POLICY");
+      assertInteger(parsed, "/capabilities/disclosure/epoch", 1, 9007199254740991);
       const selected = grants(p.grants);
       if (!same2(selected, p.grants)) fail4("GRANT_ORDER");
       if (p.previousPolicyHash !== state.policyHash || p.epoch !== (started ? state.epoch + (same2(selected, state.grants) ? 0 : 1) : 1) || p.policyHash !== hashJSON({ profile: DISCLOSURE, epoch: p.epoch, grants: selected })) fail4("POLICY_CHAIN");
       const authorized = new Map(selected.map((e) => [key(e), e])), history = new Map(state.history), seen = /* @__PURE__ */ new Set();
-      for (const stamp of p.stamps) {
+      for (const [index, stamp] of p.stamps.entries()) {
+        assertInteger(parsed, "/capabilities/disclosure/stamps/" + index + "/revision", 1, 9007199254740991);
         if (!exact(stamp, ["entityType", "entityID", "revision", "contentHash", "semanticHash", "state"]) || !identity(stamp) || !safe(stamp.revision) || !hash.test(stamp.contentHash) || !hash.test(stamp.semanticHash) || !["live", "withdrawn", "deleted"].includes(stamp.state) || seen.has(key(stamp))) fail4("STAMP");
         seen.add(key(stamp));
         const prior = history.get(key(stamp));
@@ -3354,8 +3361,12 @@ var DayisleWire = (() => {
       }
       for (const [id2, stamp] of history) if (stamp.state === "live" !== authorized.has(id2)) fail4("VIEW_SCOPE");
       if ([...authorized.keys()].some((id2) => !history.has(id2))) fail4("MISSING_STAMP");
+      const checkpointNeeded = !started && legacy && p.stamps.length > 0 || state.grants.some((g) => {
+        const next = authorized.get(key(g));
+        return !next || g.text && !next.text;
+      });
       if (history.size > 1e4) fail4("HISTORY_LIMIT");
-      state = { history, grants: selected, epoch: p.epoch, policyHash: p.policyHash };
+      state = { history, grants: selected, epoch: p.epoch, policyHash: p.policyHash, checkpointNeeded };
       started = true;
     }
     if (historyByHandle.has(previous) && !started) fail4("CAPABILITY_DOWNGRADE");
@@ -3380,7 +3391,8 @@ var DayisleWire = (() => {
     if (previous && !ledger.ancestry.includes(previous.commitID)) fail4("HANDOVER_UNSUPPORTED");
     for (const entry of verified.manifest.entries.filter((e) => e.kind === "projection")) {
       const p = parseJSON(files[generationRoot(verified.commit) + "/" + memberPath(entry)]).value;
-      if (!exact(p, ["projectionKey", "blockID", "datasetID", "vaultBindingID", "dayKey", "blockRole", "blockOwner", "projectionSchemaVersion", "renderedMarkdown", "renderedContentHash", "createIfMissing", "contentHash"]) || p.renderedMarkdown !== renderDisclosureDay(verified.snapshot.entities, p.dayKey, verified.commit.committedAt) || p.renderedContentHash !== sha2562(p.renderedMarkdown)) fail4("PROJECTION_DISCLOSURE");
+      const identity2 = { datasetID: p.datasetID, vaultBindingID: p.vaultBindingID, dayKey: p.dayKey, blockRole: p.blockRole };
+      if (!exact(p, ["projectionKey", "blockID", "datasetID", "vaultBindingID", "dayKey", "blockRole", "blockOwner", "projectionSchemaVersion", "renderedMarkdown", "renderedContentHash", "createIfMissing", "contentHash"]) || !validDay(p.dayKey) || p.datasetID !== verified.commit.datasetID || !uuid.test(p.vaultBindingID ?? "") || p.vaultBindingID !== verified.manifest.projection?.vaultBindingID || p.blockRole !== "daily-summary" || p.blockOwner !== "lifeos" || p.projectionSchemaVersion?.major !== 1 || p.projectionSchemaVersion?.minor !== 0 || p.createIfMissing !== true || p.projectionKey !== hashJSON(identity2) || p.blockID !== p.projectionKey || p.renderedMarkdown !== renderDisclosureDay(verified.snapshot.entities, p.dayKey, verified.commit.committedAt) || p.renderedContentHash !== sha2562(p.renderedMarkdown)) fail4("PROJECTION_DISCLOSURE");
     }
     historyByHandle.set(verified, state);
   }
@@ -3425,7 +3437,7 @@ var DayisleWire = (() => {
       if (input.requireDisclosure || result.verified.manifest.requiredCapabilities.includes(DISCLOSURE) || previous?.manifest.requiredCapabilities.includes(DISCLOSURE) || result.verified.manifest.capabilities.disclosure) validateDisclosure(input, result.verified, previous);
       return result;
     } catch (error) {
-      return { status: "blocked", scope: "disclosure", code: error.message, previous };
+      return { status: "blocked", scope: "disclosure", code: error.code ?? error.message, previous };
     }
   }
   function assertReviewPolicy(intent) {
@@ -3544,11 +3556,22 @@ var DayisleWire = (() => {
     const result = verify(input, previous);
     if (result.status !== "promoted") throw Error(result.code);
     const projectionKeys = Object.fromEntries(payloads.map((p) => [p.dayKey, p.projectionKey]));
-    return { files, commitPath: recordPath, commit, manifest, snapshot, projectionKeys, projectionKey: projectionKeys[seed.today], verified: result.verified };
+    const checkpointTemplate2 = disclosure ? { datasetID: seed.datasetID, writerID: seed.writerID, bindingID: seed.bindingID, today: seed.today, startDay: seed.startDay, endDay: seed.endDay, now: seed.now, projectionEnabled: seed.projectionEnabled, projectionEpoch: seed.projectionEpoch, projectionDays, entities: snapshot.entities, deleted: snapshot.tombstones.map((e) => ({ entityType: e.entityType, entityID: e.entityID })), disclosure: { grants: disclosure.policy.grants } } : null;
+    return { files, commitPath: recordPath, commit, manifest, snapshot, projectionKeys, projectionKey: projectionKeys[seed.today], verified: result.verified, needsCheckpoint: disclosure?.checkpointNeeded ?? false, checkpointTemplate: checkpointTemplate2 };
   }
   var active = null;
   var pending = null;
   var retirement = null;
+  var checkpointTemplate = null;
+  var publicBuild = (p) => ({ files: p.files, commitPath: p.commitPath, commit: p.commit, snapshot: p.snapshot, manifest: p.manifest, projectionKey: p.projectionKey, projectionKeys: p.projectionKeys, needsCheckpoint: p.needsCheckpoint });
+  function verifiedProjectionKeys(verified, input) {
+    const keys = {};
+    for (const entry of verified.manifest.entries.filter((e) => e.kind === "projection")) {
+      const p = parseJSON(Buffer.from(input.files[generationRoot(verified.commit) + "/" + memberPath(entry)], "base64")).value;
+      if (validDay(p.dayKey)) keys[p.dayKey] = entry.projectionKey;
+    }
+    return keys;
+  }
   function invoke(operation, text) {
     try {
       const input = JSON.parse(text);
@@ -3589,14 +3612,22 @@ var DayisleWire = (() => {
         value = { keep: retirement.keep, files, contentBytes: total };
       } else if (operation === "verify") {
         const result = verify(input, active);
-        if (result.status === "promoted") active = result.verified;
-        value = result.status === "promoted" ? { status: result.status, snapshot: active.snapshot, commit: active.commit, manifest: active.manifest, ancestry: active.ancestry } : { status: result.status, code: result.code };
+        if (result.status === "promoted") {
+          active = result.verified;
+          checkpointTemplate = null;
+        }
+        value = result.status === "promoted" ? { status: result.status, snapshot: active.snapshot, commit: active.commit, manifest: active.manifest, ancestry: active.ancestry, needsCheckpoint: disclosureCheckpointNeeded(active), projectionKeys: verifiedProjectionKeys(active, input) } : { status: result.status, code: result.code };
       } else if (operation === "build") {
         pending = buildPublication(input, active);
-        value = { files: pending.files, commitPath: pending.commitPath, commit: pending.commit, snapshot: pending.snapshot, manifest: pending.manifest, projectionKey: pending.projectionKey, projectionKeys: pending.projectionKeys };
+        value = publicBuild(pending);
+      } else if (operation === "checkpoint") {
+        if (!active || !checkpointTemplate) throw Error("CHECKPOINT_REQUIRES_CONFIRMED_PUBLICATION");
+        pending = buildPublication({ ...checkpointTemplate, disk: input.disk }, active);
+        value = publicBuild(pending);
       } else if (operation === "adopt") {
         if (!pending || pending.commit.commitID !== input.commitID) throw Error("PENDING_HEAD_CHANGED");
         active = pending.verified;
+        checkpointTemplate = pending.checkpointTemplate;
         pending = null;
         retirement = null;
         value = { commit: active.commit };

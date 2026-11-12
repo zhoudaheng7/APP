@@ -6,12 +6,14 @@ if [ -d /Applications/Xcode_26.6.app/Contents/Developer ]; then
 fi
 mkdir -p dist
 TEST_MODE="${DAYISLE_TEST_MODE:-full}"
+PHASE="${1:-all}"
 case "$TEST_MODE" in full|unit) ;; *) echo 'Unknown test mode' >&2; exit 2 ;; esac
+case "$PHASE" in all|prepare|verify) ;; *) echo 'Unknown phase' >&2; exit 2 ;; esac
 export TEST_MODE
 python3 - <<'PY'
 import json,os
 from pathlib import Path
-Path('dist/test-mode.json').write_text(json.dumps({'mode':os.environ['TEST_MODE'],'release_gate':os.environ['TEST_MODE']=='full'},indent=2))
+Path('dist/test-mode.json').write_text(json.dumps({'mode':os.environ['TEST_MODE'],'release_gate_requested':os.environ['TEST_MODE']=='full'},indent=2))
 PY
 collect_evidence() {
   git rev-parse HEAD > dist/source-commit.txt
@@ -20,6 +22,7 @@ collect_evidence() {
   fi
 }
 trap collect_evidence EXIT
+if [ "$PHASE" != verify ]; then
 xcodebuild -version | tee dist/toolchain.txt
 python3 tools/make_native_icon.py
 command -v xcodegen >/dev/null || brew install xcodegen
@@ -52,12 +55,22 @@ assert devices,'No available iPhone Simulator'
 print(devices[0]['udid'])
 PY
 )
+printf '%s\n' "$SIMULATOR_ID" > dist/simulator-id.txt
 xcrun simctl boot "$SIMULATOR_ID" 2>/dev/null || true
+build_simulator() {
+  xcodebuild build-for-testing -project LifeOS.xcodeproj -scheme LifeOS -configuration Debug \
+    -destination "platform=iOS Simulator,id=$SIMULATOR_ID" -derivedDataPath build/simulator \
+    "$@" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO 2>&1 | tee dist/simulator-build.log
+}
+if [ "$TEST_MODE" = unit ]; then build_simulator -only-testing:LifeOSNativeTests; else build_simulator; fi
+fi
+if [ "$PHASE" = prepare ]; then exit 0; fi
+SIMULATOR_ID=$(cat dist/simulator-id.txt)
 xcrun simctl bootstatus "$SIMULATOR_ID" -b
 xcrun simctl status_bar "$SIMULATOR_ID" override --time '9:41' --batteryState charged --batteryLevel 100 || true
 xcrun simctl ui "$SIMULATOR_ID" appearance light
 if [ "$TEST_MODE" = unit ]; then
-  xcodebuild test -project LifeOS.xcodeproj -scheme LifeOS -configuration Debug \
+  xcodebuild test-without-building -project LifeOS.xcodeproj -scheme LifeOS -configuration Debug \
     -destination "platform=iOS Simulator,id=$SIMULATOR_ID" -derivedDataPath build/simulator \
     -only-testing:LifeOSNativeTests -resultBundlePath dist/Native.xcresult -parallel-testing-enabled NO \
     -collect-test-diagnostics never CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
@@ -78,7 +91,7 @@ git -C .. archive "$BASELINE" LifeOS | tar -x -C build/baseline
     CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
 ) 2>&1 | tee dist/baseline-install.log
 xcrun simctl get_app_container "$SIMULATOR_ID" app.lifeos.personal data > dist/baseline-container.txt
-xcodebuild test -project LifeOS.xcodeproj -scheme LifeOS -configuration Debug \
+xcodebuild test-without-building -project LifeOS.xcodeproj -scheme LifeOS -configuration Debug \
   -destination "platform=iOS Simulator,id=$SIMULATOR_ID" -derivedDataPath build/simulator \
   -resultBundlePath dist/Native.xcresult -parallel-testing-enabled NO \
   -collect-test-diagnostics never CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
@@ -96,3 +109,9 @@ xcrun simctl io "$SIMULATOR_ID" screenshot dist/LifeOS-light.png
 xcrun simctl ui "$SIMULATOR_ID" appearance dark
 sleep 1
 xcrun simctl io "$SIMULATOR_ID" screenshot dist/LifeOS-dark.png
+python3 - <<'PY'
+from pathlib import Path
+import json,subprocess
+package=json.loads(Path('dist/unsigned-check.json').read_text())
+Path('dist/release-gate.json').write_text(json.dumps({'mode':'full','software_checks':'passed','source_commit':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),'baseline_to_new_container_preserved':True,'domain_native_ui_tests_passed':True,'unsigned_sha256':package['sha256'],'version':package['version'],'build':package['build'],'physical_iphone_verified':False,'real_vault_provider_verified':False},indent=2))
+PY

@@ -3014,7 +3014,7 @@ function validateIntent(intent, {
 // disclosure.mjs
 var DISCLOSURE = "dayisle.disclosure.v1";
 var TYPES = ["Task", "DraftPlan", "CalendarCommitment", "ActualSession", "DailyReview"];
-var uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+var uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 var hash = /^[0-9a-f]{64}$/;
 var historyByHandle = /* @__PURE__ */ new WeakMap();
 var fail3 = (code) => {
@@ -3057,7 +3057,7 @@ function validateDisclosure(input, verified, previous) {
   for (const id of ledger.ancestry) {
     const c = ledger.nodes.get(id), bytes = files[c.manifestPath];
     if (!bytes) fail3("HISTORY_MISSING");
-    const m = validateSchema(parseJSON(bytes), "manifest.schema.json");
+    const parsed = parseJSON(bytes), m = validateSchema(parsed, "manifest.schema.json");
     if (hashJSON(m) !== c.manifestHash || m.datasetID !== c.datasetID || m.writerInstanceID !== c.writerInstanceID || m.writerEpoch !== c.writerEpoch || m.generation !== c.generation) fail3("HISTORY_HASH");
     const p = m.capabilities.disclosure, required = m.requiredCapabilities.includes(DISCLOSURE);
     if (!required) {
@@ -3067,11 +3067,13 @@ function validateDisclosure(input, verified, previous) {
     }
     if (c.takeover !== null || ledger.stale.length) fail3("HANDOVER_UNSUPPORTED");
     if (!exact(p, ["profile", "epoch", "previousPolicyHash", "policyHash", "grants", "stamps"]) || p.profile !== DISCLOSURE || !safe(p.epoch) || !Array.isArray(p.stamps) || p.stamps.length > 1e4) fail3("POLICY");
+    assertInteger(parsed, "/capabilities/disclosure/epoch", 1, 9007199254740991);
     const selected = grants(p.grants);
     if (!same2(selected, p.grants)) fail3("GRANT_ORDER");
     if (p.previousPolicyHash !== state.policyHash || p.epoch !== (started ? state.epoch + (same2(selected, state.grants) ? 0 : 1) : 1) || p.policyHash !== hashJSON({ profile: DISCLOSURE, epoch: p.epoch, grants: selected })) fail3("POLICY_CHAIN");
     const authorized = new Map(selected.map((e) => [key(e), e])), history = new Map(state.history), seen = /* @__PURE__ */ new Set();
-    for (const stamp of p.stamps) {
+    for (const [index, stamp] of p.stamps.entries()) {
+      assertInteger(parsed, "/capabilities/disclosure/stamps/" + index + "/revision", 1, 9007199254740991);
       if (!exact(stamp, ["entityType", "entityID", "revision", "contentHash", "semanticHash", "state"]) || !identity(stamp) || !safe(stamp.revision) || !hash.test(stamp.contentHash) || !hash.test(stamp.semanticHash) || !["live", "withdrawn", "deleted"].includes(stamp.state) || seen.has(key(stamp))) fail3("STAMP");
       seen.add(key(stamp));
       const prior = history.get(key(stamp));
@@ -3084,8 +3086,12 @@ function validateDisclosure(input, verified, previous) {
     }
     for (const [id2, stamp] of history) if (stamp.state === "live" !== authorized.has(id2)) fail3("VIEW_SCOPE");
     if ([...authorized.keys()].some((id2) => !history.has(id2))) fail3("MISSING_STAMP");
+    const checkpointNeeded = !started && legacy && p.stamps.length > 0 || state.grants.some((g) => {
+      const next = authorized.get(key(g));
+      return !next || g.text && !next.text;
+    });
     if (history.size > 1e4) fail3("HISTORY_LIMIT");
-    state = { history, grants: selected, epoch: p.epoch, policyHash: p.policyHash };
+    state = { history, grants: selected, epoch: p.epoch, policyHash: p.policyHash, checkpointNeeded };
     started = true;
   }
   if (historyByHandle.has(previous) && !started) fail3("CAPABILITY_DOWNGRADE");
@@ -3110,7 +3116,8 @@ function validateDisclosure(input, verified, previous) {
   if (previous && !ledger.ancestry.includes(previous.commitID)) fail3("HANDOVER_UNSUPPORTED");
   for (const entry of verified.manifest.entries.filter((e) => e.kind === "projection")) {
     const p = parseJSON(files[generationRoot(verified.commit) + "/" + memberPath(entry)]).value;
-    if (!exact(p, ["projectionKey", "blockID", "datasetID", "vaultBindingID", "dayKey", "blockRole", "blockOwner", "projectionSchemaVersion", "renderedMarkdown", "renderedContentHash", "createIfMissing", "contentHash"]) || p.renderedMarkdown !== renderDisclosureDay(verified.snapshot.entities, p.dayKey, verified.commit.committedAt) || p.renderedContentHash !== sha2562(p.renderedMarkdown)) fail3("PROJECTION_DISCLOSURE");
+    const identity2 = { datasetID: p.datasetID, vaultBindingID: p.vaultBindingID, dayKey: p.dayKey, blockRole: p.blockRole };
+    if (!exact(p, ["projectionKey", "blockID", "datasetID", "vaultBindingID", "dayKey", "blockRole", "blockOwner", "projectionSchemaVersion", "renderedMarkdown", "renderedContentHash", "createIfMissing", "contentHash"]) || !validDay(p.dayKey) || p.datasetID !== verified.commit.datasetID || !uuid.test(p.vaultBindingID ?? "") || p.vaultBindingID !== verified.manifest.projection?.vaultBindingID || p.blockRole !== "daily-summary" || p.blockOwner !== "lifeos" || p.projectionSchemaVersion?.major !== 1 || p.projectionSchemaVersion?.minor !== 0 || p.createIfMissing !== true || p.projectionKey !== hashJSON(identity2) || p.blockID !== p.projectionKey || p.renderedMarkdown !== renderDisclosureDay(verified.snapshot.entities, p.dayKey, verified.commit.committedAt) || p.renderedContentHash !== sha2562(p.renderedMarkdown)) fail3("PROJECTION_DISCLOSURE");
   }
   historyByHandle.set(verified, state);
 }
@@ -3152,7 +3159,7 @@ function verify(input, previous = null) {
     if (input.requireDisclosure || result.verified.manifest.requiredCapabilities.includes(DISCLOSURE) || previous?.manifest.requiredCapabilities.includes(DISCLOSURE) || result.verified.manifest.capabilities.disclosure) validateDisclosure(input, result.verified, previous);
     return result;
   } catch (error) {
-    return { status: "blocked", scope: "disclosure", code: error.message, previous };
+    return { status: "blocked", scope: "disclosure", code: error.code ?? error.message, previous };
   }
 }
 function assertReviewPolicy(intent) {

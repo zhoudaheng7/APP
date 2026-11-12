@@ -131,6 +131,8 @@ struct DisclosureSettings: Codable, Equatable {
     var lastCommitID: String?
     var grants: [DisclosureGrant]?
     var lastPublishedGrants: [DisclosureGrant]?
+    var privacyCleanupPending: Bool?
+    var selectionPending: Bool { lastCommitID == nil || Set((grants ?? []).map { $0.id + ":" + String($0.text) }) != Set((lastPublishedGrants ?? []).map { $0.id + ":" + String($0.text) }) }
 }
 struct LifeBackup: Codable {
     var format = "dayisle-private-backup/v2"
