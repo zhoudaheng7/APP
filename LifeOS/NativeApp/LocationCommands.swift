@@ -82,9 +82,12 @@ extension LifeStore {
     }
     func saveRoute(_ original: LifeRoute, title: String, note: String, transport: String, tripID: UUID?, purpose: String? = nil) -> Bool {
         commit(kind: "route.edit", id: original.id) { state in
-            guard let i = state.routes.firstIndex(where: { $0.id == original.id }), state.routes[i] == original else { throw LifeError.message("路线已更新，请停止采集并核对后重试。") }
+            guard let i = state.routes.firstIndex(where: { $0.id == original.id }), (state.routes[i].metadataRevision ?? 1) == (original.metadataRevision ?? 1) else { throw LifeError.message("路线说明已更新，请核对后重试。") }
+            let previous = state.routes[i]
+            try state.audit(RouteStory(title:previous.title,note:previous.note,transport:previous.transport,purpose:previous.purpose,tripID:previous.tripID), id:previous.id, kind:"route-story", revision:previous.metadataRevision ?? 1)
             state.routes[i].title = title; state.routes[i].note = note; state.routes[i].transport = transport; state.routes[i].tripID = tripID
             state.routes[i].purpose = purpose
+            state.routes[i].metadataRevision = (previous.metadataRevision ?? 1) + 1
         }
     }
     func deleteRoute(_ route: LifeRoute) {

@@ -14,9 +14,9 @@ var DayisleWire = (() => {
   };
   var __copyProps = (to, from, except, desc) => {
     if (from && typeof from === "object" || typeof from === "function") {
-      for (let key of __getOwnPropNames(from))
-        if (!__hasOwnProp.call(to, key) && key !== except)
-          __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+      for (let key2 of __getOwnPropNames(from))
+        if (!__hasOwnProp.call(to, key2) && key2 !== except)
+          __defProp(to, key2, { get: () => from[key2], enumerable: !(desc = __getOwnPropDesc(from, key2)) || desc.enumerable });
     }
     return to;
   };
@@ -1810,7 +1810,8 @@ var DayisleWire = (() => {
   var runtime_exports = {};
   __export(runtime_exports, {
     CAPABILITY: () => CAPABILITY,
-    TYPES: () => TYPES,
+    DISCLOSURE: () => DISCLOSURE,
+    TYPES: () => TYPES2,
     buildPublication: () => buildPublication,
     decodeInput: () => decodeInput,
     invoke: () => invoke,
@@ -2241,7 +2242,7 @@ var DayisleWire = (() => {
     if (bytes instanceof ArrayBuffer) return new Uint8Array(bytes);
     throw new TypeError("Expected UTF-8 bytes (Uint8Array, Buffer, or ArrayBuffer)");
   }
-  var escapePointer = (key) => key.replace(/~/g, "~0").replace(/\//g, "~1");
+  var escapePointer = (key2) => key2.replace(/~/g, "~0").replace(/\//g, "~1");
   function parseJSON(bytes) {
     const input = asBytes(bytes);
     if (input[0] === 239 && input[1] === 187 && input[2] === 191) {
@@ -2303,14 +2304,14 @@ var DayisleWire = (() => {
         }
         while (true) {
           if (source[cursor] !== '"') syntax("Expected an object key");
-          const key = string();
-          const childPointer = `${pointer}/${escapePointer(key)}`;
-          if (keys.has(key)) fail("JSON_DUPLICATE_KEY", `Duplicate decoded key ${JSON.stringify(key)}`, childPointer);
-          keys.add(key);
+          const key2 = string();
+          const childPointer = `${pointer}/${escapePointer(key2)}`;
+          if (keys.has(key2)) fail("JSON_DUPLICATE_KEY", `Duplicate decoded key ${JSON.stringify(key2)}`, childPointer);
+          keys.add(key2);
           whitespace();
           if (source[cursor++] !== ":") syntax("Expected a colon");
           const child = value(childPointer);
-          Object.defineProperty(result, key, { value: child, enumerable: true, writable: true, configurable: true });
+          Object.defineProperty(result, key2, { value: child, enumerable: true, writable: true, configurable: true });
           whitespace();
           const separator = source[cursor++];
           if (separator === "}") return result;
@@ -2334,10 +2335,10 @@ var DayisleWire = (() => {
           if (separator !== ",") syntax("Expected a comma or closing bracket");
         }
       }
-      for (const [token, literal] of [["true", true], ["false", false], ["null", null]]) {
+      for (const [token, literal2] of [["true", true], ["false", false], ["null", null]]) {
         if (source.startsWith(token, cursor)) {
           cursor += token.length;
-          return literal;
+          return literal2;
         }
       }
       const match = /^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?/.exec(source.slice(cursor));
@@ -2362,9 +2363,9 @@ var DayisleWire = (() => {
       throw new TypeError("Expected an RFC 6901 JSON pointer");
     }
     for (const part of pointer.slice(1).split("/")) {
-      const key = part.replace(/~1/g, "/").replace(/~0/g, "~");
-      if (value === null || typeof value !== "object" || !Object.hasOwn(value, key)) return void 0;
-      value = value[key];
+      const key2 = part.replace(/~1/g, "/").replace(/~0/g, "~");
+      if (value === null || typeof value !== "object" || !Object.hasOwn(value, key2)) return void 0;
+      value = value[key2];
     }
     return value;
   }
@@ -2388,10 +2389,10 @@ var DayisleWire = (() => {
     if (!match) fail("INTEGER_REQUIRED", "Invalid original JSON number token", pointer);
     const [, sign, whole, fraction = "", exponent = "0"] = match;
     const digits = (whole + fraction).replace(/^0+/, "");
-    let exact;
+    let exact2;
     if (digits === "") {
       if (sign) fail("INTEGER_NEGATIVE_ZERO", "Negative-zero integer token is prohibited", pointer);
-      exact = 0n;
+      exact2 = 0n;
     } else {
       const coefficient = digits.replace(/0+$/, "");
       const trailingZeros = digits.length - coefficient.length;
@@ -2400,12 +2401,12 @@ var DayisleWire = (() => {
       if (BigInt(coefficient.length) + shift > 16n) {
         fail("INTEGER_RANGE", `Integer must be within ${min}..${max}`, pointer);
       }
-      exact = BigInt(sign + coefficient + "0".repeat(Number(shift)));
+      exact2 = BigInt(sign + coefficient + "0".repeat(Number(shift)));
     }
-    if (exact < BigInt(min) || exact > BigInt(max)) {
+    if (exact2 < BigInt(min) || exact2 > BigInt(max)) {
       fail("INTEGER_RANGE", `Integer must be within ${min}..${max}`, pointer);
     }
-    const result = Number(exact);
+    const result = Number(exact2);
     if (!Object.is(decoded, result)) fail("INTEGER_VALUE_MISMATCH", "Parsed value differs from the validated token", pointer);
     return result;
   }
@@ -2436,11 +2437,11 @@ var DayisleWire = (() => {
         const prototype = Object.getPrototypeOf(item);
         if (prototype !== Object.prototype && prototype !== null) fail("JSON_VALUE", "Expected a plain JSON object");
         if (Object.getOwnPropertySymbols(item).length) fail("JSON_VALUE", "Symbol keys are not JSON properties");
-        const members = Object.keys(item).sort().map((key) => {
-          assertUnicode(key);
-          const descriptor = Object.getOwnPropertyDescriptor(item, key);
+        const members = Object.keys(item).sort().map((key2) => {
+          assertUnicode(key2);
+          const descriptor = Object.getOwnPropertyDescriptor(item, key2);
           if (!Object.hasOwn(descriptor, "value")) fail("JSON_VALUE", "Accessors are not JSON values");
-          return `${JSON.stringify(key)}:${serialize(descriptor.value)}`;
+          return `${JSON.stringify(key2)}:${serialize(descriptor.value)}`;
         });
         return `{${members.join(",")}}`;
       } finally {
@@ -2459,12 +2460,12 @@ var DayisleWire = (() => {
   function hashJSON(value) {
     return sha2562(Buffer.from(canonicalize(value), "utf8"));
   }
-  function hashOmittingRoot(value, key) {
-    if (value === null || typeof value !== "object" || Array.isArray(value) || typeof key !== "string") {
+  function hashOmittingRoot(value, key2) {
+    if (value === null || typeof value !== "object" || Array.isArray(value) || typeof key2 !== "string") {
       throw new TypeError("Root omission requires a JSON object and a string key");
     }
     canonicalize(value);
-    return hashJSON(Object.fromEntries(Object.entries(value).filter(([name]) => name !== key)));
+    return hashJSON(Object.fromEntries(Object.entries(value).filter(([name]) => name !== key2)));
   }
 
   // ../../protocol/tools/schema-validator.mjs
@@ -2490,9 +2491,9 @@ var DayisleWire = (() => {
     let schema = load(target);
     if (fragment && !fragment.startsWith("/")) throw new Error("Invalid schema fragment");
     if (fragment) for (const encoded of fragment.slice(1).split("/")) {
-      const key = encoded.replace(/~1/g, "/").replace(/~0/g, "~");
-      if (!schema || !Object.hasOwn(schema, key)) throw new Error(`Missing schema ${ref}`);
-      schema = schema[key];
+      const key2 = encoded.replace(/~1/g, "/").replace(/~0/g, "~");
+      if (!schema || !Object.hasOwn(schema, key2)) throw new Error(`Missing schema ${ref}`);
+      schema = schema[key2];
     }
     if (!schema) throw new Error(`Missing schema ${ref}`);
     return [schema, target];
@@ -2504,8 +2505,8 @@ var DayisleWire = (() => {
         if (!s) throw new SchemaError(p, "false");
         return;
       }
-      for (const key of Object.keys(s)) if (!keywords.has(key)) throw new Error(`Unsupported schema keyword ${key}`);
-      const fail4 = (r) => {
+      for (const key2 of Object.keys(s)) if (!keywords.has(key2)) throw new Error(`Unsupported schema keyword ${key2}`);
+      const fail5 = (r) => {
         throw new SchemaError(p, r);
       };
       const matches = (sub) => {
@@ -2523,39 +2524,39 @@ var DayisleWire = (() => {
       }
       if (s.type) {
         const kinds = Array.isArray(s.type) ? s.type : [s.type];
-        if (!kinds.some((t) => t === "object" ? object(v) : t === "array" ? Array.isArray(v) : t === "null" ? v === null : t === "integer" ? typeof v === "number" && Number.isInteger(v) : t === "number" ? typeof v === "number" : typeof v === t)) fail4("type");
+        if (!kinds.some((t) => t === "object" ? object(v) : t === "array" ? Array.isArray(v) : t === "null" ? v === null : t === "integer" ? typeof v === "number" && Number.isInteger(v) : t === "number" ? typeof v === "number" : typeof v === t)) fail5("type");
         if (kinds.includes("integer") && typeof v === "number") assertInteger(parsed, p, s.minimum ?? -9007199254740991, s.maximum ?? 9007199254740991);
       }
-      if (s.const !== void 0 && !equal(v, s.const)) fail4("const");
-      if (s.enum && !s.enum.some((x) => equal(v, x))) fail4("enum");
-      if (typeof v === "number" && (s.minimum !== void 0 && v < s.minimum || s.maximum !== void 0 && v > s.maximum)) fail4("range");
+      if (s.const !== void 0 && !equal(v, s.const)) fail5("const");
+      if (s.enum && !s.enum.some((x) => equal(v, x))) fail5("enum");
+      if (typeof v === "number" && (s.minimum !== void 0 && v < s.minimum || s.maximum !== void 0 && v > s.maximum)) fail5("range");
       if (typeof v === "string") {
-        if (s.minLength !== void 0 && [...v].length < s.minLength || s.maxLength !== void 0 && [...v].length > s.maxLength) fail4("length");
-        if (s.pattern && !new RegExp(s.pattern, "u").test(v)) fail4("pattern");
+        if (s.minLength !== void 0 && [...v].length < s.minLength || s.maxLength !== void 0 && [...v].length > s.maxLength) fail5("length");
+        if (s.pattern && !new RegExp(s.pattern, "u").test(v)) fail5("pattern");
       }
       if (object(v)) {
-        for (const key of s.required ?? []) if (!Object.hasOwn(v, key)) fail4(`required ${key}`);
-        for (const [key, sub] of Object.entries(s.properties ?? {})) if (Object.hasOwn(v, key)) walk(v[key], sub, f, p + "/" + ptr(key));
+        for (const key2 of s.required ?? []) if (!Object.hasOwn(v, key2)) fail5(`required ${key2}`);
+        for (const [key2, sub] of Object.entries(s.properties ?? {})) if (Object.hasOwn(v, key2)) walk(v[key2], sub, f, p + "/" + ptr(key2));
         if (s.additionalProperties === false) {
-          for (const key of Object.keys(v)) if (!Object.hasOwn(s.properties ?? {}, key)) fail4(`additional ${key}`);
+          for (const key2 of Object.keys(v)) if (!Object.hasOwn(s.properties ?? {}, key2)) fail5(`additional ${key2}`);
         }
       }
       if (Array.isArray(v)) {
-        if (s.minItems !== void 0 && v.length < s.minItems || s.maxItems !== void 0 && v.length > s.maxItems) fail4("items length");
-        if (s.uniqueItems && new Set(v.map(canonicalize)).size !== v.length) fail4("uniqueItems");
+        if (s.minItems !== void 0 && v.length < s.minItems || s.maxItems !== void 0 && v.length > s.maxItems) fail5("items length");
+        if (s.uniqueItems && new Set(v.map(canonicalize)).size !== v.length) fail5("uniqueItems");
         if (s.items) v.forEach((item, i) => walk(item, s.items, f, p + "/" + i));
       }
       for (const sub of s.allOf ?? []) walk(v, sub, f, p);
-      if (s.anyOf && !s.anyOf.some(matches)) fail4("anyOf");
-      if (s.oneOf && s.oneOf.filter(matches).length !== 1) fail4("oneOf");
-      if (s.not && matches(s.not)) fail4("not");
+      if (s.anyOf && !s.anyOf.some(matches)) fail5("anyOf");
+      if (s.oneOf && s.oneOf.filter(matches).length !== 1) fail5("oneOf");
+      if (s.not && matches(s.not)) fail5("not");
       if (s.if) {
         const branch = matches(s.if) ? s.then : s.else;
         if (branch) walk(v, branch, f, p);
       }
     }
     let value = parsed.value;
-    if (pointer) for (const key of pointer.slice(1).split("/")) value = value[key.replace(/~1/g, "/").replace(/~0/g, "~")];
+    if (pointer) for (const key2 of pointer.slice(1).split("/")) value = value[key2.replace(/~1/g, "/").replace(/~0/g, "~")];
     walk(value, schema, file, pointer);
     return value;
   }
@@ -2586,8 +2587,8 @@ var DayisleWire = (() => {
     throw new ProtocolError(code);
   };
   var same = (a, b) => canonicalize(a) === canonicalize(b);
-  var digest = (v, key = "contentHash") => {
-    if (v[key] !== hashOmittingRoot(v, key)) fail2("MACHINE_HASH");
+  var digest = (v, key2 = "contentHash") => {
+    if (v[key2] !== hashOmittingRoot(v, key2)) fail2("MACHINE_HASH");
   };
   var deepFreeze = (v) => {
     if (v && typeof v === "object" && !Object.isFrozen(v)) {
@@ -2708,17 +2709,17 @@ var DayisleWire = (() => {
     const oldEntities = new Map([...previous?.entities ?? [], ...previous?.tombstones ?? []].map((e) => [e.entityType + ":" + e.entityID, e]));
     const oldTombstones = new Set((previous?.tombstones ?? []).map((e) => e.entityType + ":" + e.entityID));
     const newTombstones = new Set(snapshot.tombstones.map((e) => e.entityType + ":" + e.entityID));
-    for (const key2 of oldTombstones) {
-      if (snapshot.entities.some((e) => e.entityType + ":" + e.entityID === key2)) fail2("MACHINE_TOMBSTONE_RESURRECTION");
-      if (!newTombstones.has(key2)) fail2("MACHINE_TOMBSTONE_GC");
+    for (const key3 of oldTombstones) {
+      if (snapshot.entities.some((e) => e.entityType + ":" + e.entityID === key3)) fail2("MACHINE_TOMBSTONE_RESURRECTION");
+      if (!newTombstones.has(key3)) fail2("MACHINE_TOMBSTONE_GC");
     }
     for (const [list, tombstone] of [[snapshot.entities, false], [snapshot.tombstones, true]]) for (const e of list) {
       digest(e);
       if (e.datasetID !== manifest.datasetID || !tombstone && !manifest.scope.entityTypes.includes(e.entityType)) fail2("MACHINE_IDENTITY");
-      const key2 = e.entityType + ":" + e.entityID;
-      if (ids.has(key2)) fail2("MACHINE_REVISION_CONFLICT");
-      ids.set(key2, e);
-      const old = oldEntities.get(key2);
+      const key3 = e.entityType + ":" + e.entityID;
+      if (ids.has(key3)) fail2("MACHINE_REVISION_CONFLICT");
+      ids.set(key3, e);
+      const old = oldEntities.get(key3);
       if (old && (e.revision < old.revision || e.revision === old.revision && e.contentHash !== old.contentHash)) fail2("MACHINE_REVISION_CONFLICT");
       if (tombstone && old && (previous.entities ?? []).includes(old) && e.revision <= old.revision) fail2("MACHINE_TOMBSTONE");
       if (tombstone) continue;
@@ -2758,9 +2759,9 @@ var DayisleWire = (() => {
       }
       for (const s of splitSession(e, asOf)) if (s.dayKey >= startDayKey && s.dayKey < endDayKeyExclusive) expected.push(s);
     }
-    const key = (s) => s.sessionID + ":" + String(s.index).padStart(16, "0");
+    const key2 = (s) => s.sessionID + ":" + String(s.index).padStart(16, "0");
     const semantic = (s) => Object.fromEntries(["sessionID", "dayKey", "start", "end", "entityRevision", "index", "provisional"].map((k) => [k, s[k]]));
-    if (!same(actual.map(semantic).sort((a, b) => key(a).localeCompare(key(b))), expected.sort((a, b) => key(a).localeCompare(key(b))))) fail2("MACHINE_SEGMENT");
+    if (!same(actual.map(semantic).sort((a, b) => key2(a).localeCompare(key2(b))), expected.sort((a, b) => key2(a).localeCompare(key2(b))))) fail2("MACHINE_SEGMENT");
     return snapshot;
   }
   var verifiedHandles = /* @__PURE__ */ new WeakMap();
@@ -2770,9 +2771,9 @@ var DayisleWire = (() => {
     const deleted = new Map((previous?.tombstones ?? []).map((e) => [e.entityType + ":" + e.entityID, e]));
     for (const e of snapshot.entities) live.set(e.entityType + ":" + e.entityID, factSummary(e));
     for (const e of snapshot.tombstones) {
-      const key = e.entityType + ":" + e.entityID;
-      live.delete(key);
-      deleted.set(key, factSummary(e));
+      const key2 = e.entityType + ":" + e.entityID;
+      live.delete(key2);
+      deleted.set(key2, factSummary(e));
     }
     return deepFreeze({ entities: [...live.values()], tombstones: [...deleted.values()] });
   }
@@ -2900,8 +2901,8 @@ var DayisleWire = (() => {
       const config = authorization.config;
       if (config.projectionSchemaVersion.major !== 1 || p.projectionSchemaVersion.major !== 1) fail2("PROJECTION_VERSION");
       if (!validDay(p.dayKey) || p.datasetID !== c.datasetID || p.vaultBindingID !== config.vaultBindingID || p.projectionKey !== projectionKey || p.blockID !== projectionKey) fail2("PROJECTION_IDENTITY");
-      const identity = { datasetID: p.datasetID, vaultBindingID: p.vaultBindingID, dayKey: p.dayKey, blockRole: p.blockRole };
-      if (hashJSON(identity) !== projectionKey) fail2("PROJECTION_IDENTITY");
+      const identity2 = { datasetID: p.datasetID, vaultBindingID: p.vaultBindingID, dayKey: p.dayKey, blockRole: p.blockRole };
+      if (hashJSON(identity2) !== projectionKey) fail2("PROJECTION_IDENTITY");
       if (p.renderedMarkdown.includes("\r")) fail2("PROJECTION_LF");
       const { sha256: sha2563 } = strict_json_exports;
       if (sha2563(p.renderedMarkdown) !== p.renderedContentHash) fail2("PROJECTION_BODY_HASH");
@@ -2960,9 +2961,9 @@ var DayisleWire = (() => {
       fail3("BODY_ENCODING", "Body must contain valid Unicode");
     }
   }
-  function projectionIdentity(identity) {
-    if (identity === null || typeof identity !== "object" || Array.isArray(identity)) fail3("IDENTITY", "Expected projection identity fields");
-    const { datasetID, vaultBindingID, dayKey, blockRole } = identity;
+  function projectionIdentity(identity2) {
+    if (identity2 === null || typeof identity2 !== "object" || Array.isArray(identity2)) fail3("IDENTITY", "Expected projection identity fields");
+    const { datasetID, vaultBindingID, dayKey, blockRole } = identity2;
     if (!UUID.test(datasetID ?? "") || !UUID.test(vaultBindingID ?? "") || !validDay2(dayKey) || typeof blockRole !== "string" || !/^[a-z][a-z0-9-]*$/.test(blockRole)) {
       fail3("IDENTITY", "Invalid dataset, vault binding, day, or block role");
     }
@@ -2971,11 +2972,11 @@ var DayisleWire = (() => {
   }
   function validatePayload(payload) {
     if (payload === null || typeof payload !== "object" || Array.isArray(payload)) fail3("PAYLOAD", "Expected a projection payload");
-    for (const key of ["sourceCommitID", "sourceInstanceID", "targetRelativeNotePath", "targetPath", "startMarker", "endMarker"]) {
-      if (Object.hasOwn(payload, key)) fail3("RESERVED_FIELD", `Wire root ${key} is prohibited`);
+    for (const key2 of ["sourceCommitID", "sourceInstanceID", "targetRelativeNotePath", "targetPath", "startMarker", "endMarker"]) {
+      if (Object.hasOwn(payload, key2)) fail3("RESERVED_FIELD", `Wire root ${key2} is prohibited`);
     }
-    const identity = projectionIdentity(payload);
-    if (identity.projectionKey !== payload.projectionKey || identity.blockID !== payload.blockID) fail3("IDENTITY", "Projection identity digest does not match");
+    const identity2 = projectionIdentity(payload);
+    if (identity2.projectionKey !== payload.projectionKey || identity2.blockID !== payload.blockID) fail3("IDENTITY", "Projection identity digest does not match");
     if (payload.blockOwner !== "lifeos") fail3("OWNER", "Block owner must be lifeos");
     const minor = payload.projectionSchemaVersion?.minor;
     if (payload.projectionSchemaVersion?.major !== 1 || !Number.isSafeInteger(minor) || minor < 0 || Object.is(minor, -0)) {
@@ -3241,17 +3242,190 @@ var DayisleWire = (() => {
     }
   }
 
-  // runtime.mjs
+  // disclosure.mjs
+  var DISCLOSURE = "dayisle.disclosure.v1";
   var TYPES = ["Task", "DraftPlan", "CalendarCommitment", "ActualSession", "DailyReview"];
+  var uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+  var hash = /^[0-9a-f]{64}$/;
+  var historyByHandle = /* @__PURE__ */ new WeakMap();
+  var fail4 = (code) => {
+    throw Error("DISCLOSURE_" + code);
+  };
+  var key = (e) => e.entityType + ":" + e.entityID;
+  var same2 = (a, b) => canonicalize(a) === canonicalize(b);
+  var exact = (value, keys) => value && typeof value === "object" && !Array.isArray(value) && same2(Object.keys(value).sort(), [...keys].sort());
+  var identity = (e) => TYPES.includes(e.entityType) && uuid.test(e.entityID ?? "");
+  var bare = (e) => Object.fromEntries(Object.entries(e).filter(([k]) => k !== "revision" && k !== "contentHash"));
+  var seal = (e) => ({ ...e, contentHash: hashOmittingRoot(e, "contentHash") });
+  var safe = (n) => Number.isSafeInteger(n) && n > 0;
+  function grants(value) {
+    if (!Array.isArray(value) || value.length > 5e3) fail4("GRANT_LIMIT");
+    const result = value.map((e) => {
+      if (!exact(e, ["entityType", "entityID", "text"]) || !identity(e) || typeof e.text !== "boolean") fail4("GRANT");
+      return { ...e };
+    }).sort((a, b) => key(a).localeCompare(key(b)));
+    if (new Set(result.map(key)).size !== result.length) fail4("DUPLICATE_GRANT");
+    return result;
+  }
+  function initial(previous) {
+    if (historyByHandle.has(previous)) return historyByHandle.get(previous);
+    const history = /* @__PURE__ */ new Map();
+    for (const e of previous?.snapshot.entities ?? []) history.set(key(e), { entityType: e.entityType, entityID: e.entityID, revision: e.revision, contentHash: e.contentHash, semanticHash: hashJSON(bare(e)), state: "live" });
+    for (const e of previous?.snapshot.tombstones ?? []) history.set(key(e), { entityType: e.entityType, entityID: e.entityID, revision: e.revision, contentHash: e.contentHash, semanticHash: hashJSON(bare(e)), state: "deleted" });
+    return { history, grants: [], epoch: 0, policyHash: null };
+  }
+  function selectFields(raw, grant, authorized) {
+    const fields = { Task: ["lifecycleStatus"], DraftPlan: ["lifecycleStatus", "plannedStart", "plannedEnd", "attributionTimeZone"], CalendarCommitment: raw.allDay ? ["lifecycleStatus", "allDay", "localStartDate", "localEndDateExclusive", "calendarTimeZone"] : ["lifecycleStatus", "allDay", "start", "end", "attributionTimeZone"], ActualSession: ["runState", "factState", "actualStart", "actualEnd", "attributionTimeZone"], DailyReview: ["dayKey"] }[raw.entityType];
+    if (!fields) fail4("TYPE");
+    const e = { entityType: raw.entityType, entityID: raw.entityID };
+    for (const field of fields) if (Object.hasOwn(raw, field)) e[field] = raw[field];
+    if (grant.text) {
+      const text = raw.entityType === "DailyReview" ? "reflection" : "title";
+      if (Object.hasOwn(raw, text)) {
+        if (typeof raw[text] !== "string" || raw[text].length > 2e4) fail4("TEXT");
+        e[text] = raw[text];
+      }
+    }
+    if (raw.taskID && authorized.has("Task:" + raw.taskID)) e.taskID = raw.taskID;
+    return e;
+  }
+  function prepareDisclosure(seed, previous) {
+    const old = initial(previous), history = new Map([...old.history].map(([k, v]) => [k, { ...v }]));
+    const deleted = new Set(seed.deleted.map(key)), source = new Map(seed.entities.map((e) => [key(e), e]));
+    const selected = grants(seed.disclosure.grants).filter((e) => !deleted.has(key(e)));
+    if (selected.some((e) => !source.has(key(e)))) fail4("SOURCE_MISSING");
+    const authorized = new Map(selected.map((e) => [key(e), e])), entities = [], tombstones = [];
+    for (const grant of selected) {
+      const raw = source.get(key(grant)), prior = history.get(key(grant));
+      if (prior?.state === "deleted") fail4("DELETED_ID");
+      const semantic = { ...selectFields(raw, grant, authorized), datasetID: seed.datasetID }, semanticHash = hashJSON(semantic);
+      const revision = prior ? prior.state === "live" && prior.semanticHash === semanticHash ? prior.revision : prior.revision + 1 : raw.revision ?? 1;
+      if (!safe(revision)) fail4("REVISION_LIMIT");
+      const e = seal({ ...semantic, revision });
+      entities.push(e);
+      history.set(key(e), { entityType: e.entityType, entityID: e.entityID, revision, contentHash: e.contentHash, semanticHash, state: "live" });
+    }
+    for (const [id, prior] of history) {
+      if (deleted.has(id) && prior.state !== "deleted") {
+        const tombstone = seal({ datasetID: seed.datasetID, entityType: prior.entityType, entityID: prior.entityID, revision: prior.revision + 1 });
+        history.set(id, { entityType: prior.entityType, entityID: prior.entityID, revision: tombstone.revision, contentHash: tombstone.contentHash, semanticHash: hashJSON(bare(tombstone)), state: "deleted" });
+      } else if (!authorized.has(id) && prior.state === "live") history.set(id, { ...prior, state: "withdrawn" });
+    }
+    for (const prior of history.values()) if (prior.state === "deleted") tombstones.push(seal({ datasetID: seed.datasetID, entityType: prior.entityType, entityID: prior.entityID, revision: prior.revision }));
+    if (history.size > 1e4) fail4("HISTORY_LIMIT");
+    const epoch = old.epoch === 0 ? 1 : old.epoch + (same2(selected, old.grants) ? 0 : 1);
+    if (!safe(epoch)) fail4("EPOCH_LIMIT");
+    const stamps = [...history].filter(([k, v]) => !old.epoch || !same2(v, old.history.get(k) ?? null)).map(([, v]) => v).sort((a, b) => key(a).localeCompare(key(b)));
+    const policy = { profile: DISCLOSURE, epoch, previousPolicyHash: old.policyHash, policyHash: hashJSON({ profile: DISCLOSURE, epoch, grants: selected }), grants: selected, stamps };
+    return { entities, tombstones, policy };
+  }
+  function validateDisclosure(input, verified, previous) {
+    const files = Object.fromEntries(Object.entries(input.files).map(([p, v]) => [p, Buffer.from(v, "base64")]));
+    const ledger = selectHead(input.commits.map((v) => Buffer.from(v, "base64")), input.datasetID);
+    let state = { history: /* @__PURE__ */ new Map(), grants: [], epoch: 0, policyHash: null }, started = false, legacy = false;
+    for (const id of ledger.ancestry) {
+      const c = ledger.nodes.get(id), bytes = files[c.manifestPath];
+      if (!bytes) fail4("HISTORY_MISSING");
+      const m = validateSchema(parseJSON(bytes), "manifest.schema.json");
+      if (hashJSON(m) !== c.manifestHash || m.datasetID !== c.datasetID || m.writerInstanceID !== c.writerInstanceID || m.writerEpoch !== c.writerEpoch || m.generation !== c.generation) fail4("HISTORY_HASH");
+      const p = m.capabilities.disclosure, required = m.requiredCapabilities.includes(DISCLOSURE);
+      if (!required) {
+        if (p || started) fail4("CAPABILITY_DOWNGRADE");
+        legacy = true;
+        continue;
+      }
+      if (c.takeover !== null || ledger.stale.length) fail4("HANDOVER_UNSUPPORTED");
+      if (!exact(p, ["profile", "epoch", "previousPolicyHash", "policyHash", "grants", "stamps"]) || p.profile !== DISCLOSURE || !safe(p.epoch) || !Array.isArray(p.stamps) || p.stamps.length > 1e4) fail4("POLICY");
+      const selected = grants(p.grants);
+      if (!same2(selected, p.grants)) fail4("GRANT_ORDER");
+      if (p.previousPolicyHash !== state.policyHash || p.epoch !== (started ? state.epoch + (same2(selected, state.grants) ? 0 : 1) : 1) || p.policyHash !== hashJSON({ profile: DISCLOSURE, epoch: p.epoch, grants: selected })) fail4("POLICY_CHAIN");
+      const authorized = new Map(selected.map((e) => [key(e), e])), history = new Map(state.history), seen = /* @__PURE__ */ new Set();
+      for (const stamp of p.stamps) {
+        if (!exact(stamp, ["entityType", "entityID", "revision", "contentHash", "semanticHash", "state"]) || !identity(stamp) || !safe(stamp.revision) || !hash.test(stamp.contentHash) || !hash.test(stamp.semanticHash) || !["live", "withdrawn", "deleted"].includes(stamp.state) || seen.has(key(stamp))) fail4("STAMP");
+        seen.add(key(stamp));
+        const prior = history.get(key(stamp));
+        if (prior) {
+          if (prior.state === "deleted" && !same2(prior, stamp)) fail4("DELETED_ID");
+          if (stamp.state === "withdrawn" && (stamp.revision !== prior.revision || stamp.contentHash !== prior.contentHash || stamp.semanticHash !== prior.semanticHash)) fail4("WITHDRAWAL_IS_NOT_FACT_EDIT");
+          if (stamp.revision < prior.revision || stamp.revision === prior.revision && (stamp.contentHash !== prior.contentHash || stamp.semanticHash !== prior.semanticHash) || stamp.state === "live" && prior.state === "withdrawn" && stamp.revision <= prior.revision || stamp.state === "deleted" && prior.state !== "deleted" && stamp.revision <= prior.revision) fail4("REVISION");
+        } else if (stamp.state !== "live" && !(legacy && !started)) fail4("UNKNOWN_WITHDRAWAL");
+        history.set(key(stamp), stamp);
+      }
+      for (const [id2, stamp] of history) if (stamp.state === "live" !== authorized.has(id2)) fail4("VIEW_SCOPE");
+      if ([...authorized.keys()].some((id2) => !history.has(id2))) fail4("MISSING_STAMP");
+      if (history.size > 1e4) fail4("HISTORY_LIMIT");
+      state = { history, grants: selected, epoch: p.epoch, policyHash: p.policyHash };
+      started = true;
+    }
+    if (historyByHandle.has(previous) && !started) fail4("CAPABILITY_DOWNGRADE");
+    if (!started) {
+      if (input.requireDisclosure) fail4("PROFILE_REQUIRED");
+      return;
+    }
+    const live = new Map(verified.snapshot.entities.map((e) => [key(e), e])), deleted = new Map(verified.snapshot.tombstones.map((e) => [key(e), e]));
+    for (const [id, stamp] of state.history) {
+      const e = stamp.state === "live" ? live.get(id) : stamp.state === "deleted" ? deleted.get(id) : null;
+      if (stamp.state === "withdrawn") {
+        if (live.has(id) || deleted.has(id)) fail4("WITHDRAWN_VISIBLE");
+        continue;
+      }
+      if (!e || e.revision !== stamp.revision || e.contentHash !== stamp.contentHash || hashJSON(bare(e)) !== stamp.semanticHash) fail4("CURRENT_STAMP");
+      if (stamp.state === "live") {
+        const grant = state.grants.find((g) => key(g) === id), expected = { ...selectFields(e, grant, new Map(state.grants.map((g) => [key(g), g]))), datasetID: e.datasetID };
+        if (!same2(expected, bare(e))) fail4("FIELD_ALLOWLIST");
+      }
+    }
+    if (live.size !== state.grants.length || deleted.size !== [...state.history.values()].filter((e) => e.state === "deleted").length) fail4("EXTRA_FACT");
+    if (previous && !ledger.ancestry.includes(previous.commitID)) fail4("HANDOVER_UNSUPPORTED");
+    for (const entry of verified.manifest.entries.filter((e) => e.kind === "projection")) {
+      const p = parseJSON(files[generationRoot(verified.commit) + "/" + memberPath(entry)]).value;
+      if (!exact(p, ["projectionKey", "blockID", "datasetID", "vaultBindingID", "dayKey", "blockRole", "blockOwner", "projectionSchemaVersion", "renderedMarkdown", "renderedContentHash", "createIfMissing", "contentHash"]) || p.renderedMarkdown !== renderDisclosureDay(verified.snapshot.entities, p.dayKey, verified.commit.committedAt) || p.renderedContentHash !== sha2562(p.renderedMarkdown)) fail4("PROJECTION_DISCLOSURE");
+    }
+    historyByHandle.set(verified, state);
+  }
+  var literal = (text) => String(text).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replace(/[\\`*_{}\[\]()#+!|\-]/g, "\\$&");
+  var dayInZone2 = (date, zone) => {
+    const parts = Object.fromEntries(new Intl.DateTimeFormat("en", { timeZone: zone, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(date).map((p) => [p.type, p.value]));
+    return parts.year + "-" + parts.month + "-" + parts.day;
+  };
+  function renderDisclosureDay(entities, day, now) {
+    const lines2 = ["## \u671D\u5C7F \xB7 " + day, "", "\u5F53\u524D\u6388\u6743\u89C6\u56FE\uFF1B\u4EFB\u52A1\u72B6\u6001\u4E0E\u6587\u5B57\u662F\u672C\u4EE3\u7684\u5F53\u524D\u503C\uFF0C\u4E0D\u5192\u5145\u5F80\u65E5\u5FEB\u7167\u3002"];
+    let size = Buffer.byteLength(lines2.join("\n"));
+    const push = (...rows) => {
+      for (const line of rows) {
+        size += Buffer.byteLength(line) + 1;
+        if (size > 256 * 1024) fail4("PROJECTION_SIZE_LIMIT");
+        lines2.push(line);
+      }
+    };
+    for (const type of TYPES) {
+      const rows = entities.filter((e) => e.entityType === type && (type === "DailyReview" ? e.dayKey === day : type === "Task" ? e.lifecycleStatus === "open" : type === "ActualSession" ? splitSession(e, now).some((s) => s.dayKey === day) : e.lifecycleStatus === "active" && (type === "CalendarCommitment" && e.allDay ? e.localStartDate <= day && e.localEndDateExclusive > day : dayInZone2(new Date(e.plannedStart ?? e.start), e.attributionTimeZone) <= day && dayInZone2(new Date(Date.parse(e.plannedEnd ?? e.end) - 1), e.attributionTimeZone) >= day)));
+      if (!rows.length) continue;
+      push("", "### " + { Task: "\u60F3\u5B8C\u6210\u7684\u4E8B", DraftPlan: "\u79C1\u4EBA\u8BA1\u5212", CalendarCommitment: "\u65E5\u5386\u627F\u8BFA", ActualSession: "\u5B9E\u9645\u6295\u5165", DailyReview: "\u65E5\u590D\u76D8" }[type]);
+      for (const row of rows) if (type === "DailyReview") push(...literal(row.reflection ?? "\u672A\u62AB\u9732\u6B63\u6587").split("\n").map((s) => "> " + s));
+      else push("- " + literal(row.title ?? "\u672A\u62AB\u9732\u6807\u9898").replaceAll("\n", " ") + " \xB7 " + literal(row.lifecycleStatus ?? row.factState));
+    }
+    return lines2.join("\n") + "\n";
+  }
+
+  // runtime.mjs
+  var TYPES2 = ["Task", "DraftPlan", "CalendarCommitment", "ActualSession", "DailyReview"];
   var CAPABILITY = "dayisle.daily-review-text.v1";
   var version = { major: 1, minor: 0 };
-  var seal = (o) => ({ ...o, contentHash: hashOmittingRoot(o, "contentHash") });
+  var seal2 = (o) => ({ ...o, contentHash: hashOmittingRoot(o, "contentHash") });
   var unseal = (o) => Object.fromEntries(Object.entries(o).filter(([k]) => k !== "contentHash" && k !== "revision"));
   function decodeInput(input) {
-    return { commits: input.commits.map((x) => Buffer.from(x, "base64")), files: Object.fromEntries(Object.entries(input.files).map(([p, v]) => [p, Buffer.from(v, "base64")])), datasetID: input.datasetID, supportedCapabilities: [CAPABILITY] };
+    return { commits: input.commits.map((x) => Buffer.from(x, "base64")), files: Object.fromEntries(Object.entries(input.files).map(([p, v]) => [p, Buffer.from(v, "base64")])), datasetID: input.datasetID, supportedCapabilities: [CAPABILITY, DISCLOSURE] };
   }
   function verify(input, previous = null) {
-    return validateGeneration({ ...decodeInput(input), previous });
+    const result = validateGeneration({ ...decodeInput(input), previous });
+    if (result.status !== "promoted") return result;
+    try {
+      if (input.requireDisclosure || result.verified.manifest.requiredCapabilities.includes(DISCLOSURE) || previous?.manifest.requiredCapabilities.includes(DISCLOSURE) || result.verified.manifest.capabilities.disclosure) validateDisclosure(input, result.verified, previous);
+      return result;
+    } catch (error) {
+      return { status: "blocked", scope: "disclosure", code: error.message, previous };
+    }
   }
   function assertReviewPolicy(intent) {
     if (intent.type !== "DailyReviewDraft") return;
@@ -3296,23 +3470,27 @@ var DayisleWire = (() => {
     const prior = new Map([...previous?.snapshot.entities ?? [], ...previous?.snapshot.tombstones ?? []].map((e) => [e.entityType + ":" + e.entityID, e]));
     const removed = new Set(seed.deleted.map((e) => e.entityType + ":" + e.entityID));
     const tombstones = new Map((previous?.snapshot.tombstones ?? []).map((e) => [e.entityType + ":" + e.entityID, e]));
-    const entities = seed.entities.map((raw) => {
-      const e = { ...raw, datasetID: seed.datasetID }, key = e.entityType + ":" + e.entityID, old = prior.get(key);
-      if (tombstones.has(key) || removed.has(key)) throw Error("DELETED_ID_RESURRECTION");
+    const disclosure = seed.disclosure ? prepareDisclosure(seed, previous) : null;
+    const entities = disclosure?.entities ?? seed.entities.map((raw) => {
+      const e = { ...raw, datasetID: seed.datasetID }, key2 = e.entityType + ":" + e.entityID, old = prior.get(key2);
+      if (tombstones.has(key2) || removed.has(key2)) throw Error("DELETED_ID_RESURRECTION");
       const revision = old ? canonicalize(unseal(e)) === canonicalize(unseal(old)) ? old.revision : Math.max(e.revision ?? 1, old.revision + 1) : e.revision ?? 1;
-      return seal({ ...e, revision });
+      return seal2({ ...e, revision });
     });
     const present = new Set(entities.map((e) => e.entityType + ":" + e.entityID));
-    for (const old of previous?.snapshot.entities ?? []) if (!present.has(old.entityType + ":" + old.entityID) && !removed.has(old.entityType + ":" + old.entityID)) throw Error("MISSING_EXPLICIT_DELETION");
-    for (const e of seed.deleted) {
-      const key = e.entityType + ":" + e.entityID;
-      if (!tombstones.has(key)) {
-        const old = prior.get(key);
-        tombstones.set(key, seal({ datasetID: seed.datasetID, entityType: e.entityType, entityID: e.entityID, revision: (old?.revision ?? 0) + 1 }));
+    if (!disclosure) {
+      for (const old of previous?.snapshot.entities ?? []) if (!present.has(old.entityType + ":" + old.entityID) && !removed.has(old.entityType + ":" + old.entityID)) throw Error("MISSING_EXPLICIT_DELETION");
+      for (const e of seed.deleted) {
+        const key2 = e.entityType + ":" + e.entityID;
+        if (!tombstones.has(key2)) {
+          const old = prior.get(key2);
+          tombstones.set(key2, seal2({ datasetID: seed.datasetID, entityType: e.entityType, entityID: e.entityID, revision: (old?.revision ?? 0) + 1 }));
+        }
       }
     }
-    const scope = { datasetID: seed.datasetID, entityTypes: TYPES, dayRange: { startDayKey: seed.startDay, endDayKeyExclusive: seed.endDay } };
-    const snapshot = seal({ schemaVersion: version, datasetID: seed.datasetID, isCompleteSnapshot: true, scope, entities, tombstones: [...tombstones.values()] });
+    const scope = { datasetID: seed.datasetID, entityTypes: TYPES2, dayRange: { startDayKey: seed.startDay, endDayKeyExclusive: seed.endDay } };
+    const snapshot = seal2({ schemaVersion: version, datasetID: seed.datasetID, isCompleteSnapshot: true, scope, entities, tombstones: disclosure?.tombstones ?? [...tombstones.values()] });
+    if (Buffer.byteLength(canonicalize(snapshot)) > 16 * 1024 * 1024) throw Error("SNAPSHOT_SIZE_LIMIT");
     const dayMap = /* @__PURE__ */ new Map();
     for (let t = Date.parse(seed.startDay); t < Date.parse(seed.endDay); t += 864e5) {
       const dayKey = new Date(t).toISOString().slice(0, 10);
@@ -3325,13 +3503,19 @@ var DayisleWire = (() => {
         if (dayMap.has(segment.dayKey)) dayMap.get(segment.dayKey).push(segment);
       }
     }
-    const days = [...dayMap].map(([dayKey, segments]) => seal({ schemaVersion: version, datasetID: seed.datasetID, dayKey, segments }));
-    const payload = seal({ ...projectionIdentity({ datasetID: seed.datasetID, vaultBindingID: seed.bindingID, dayKey: seed.today, blockRole: "daily-summary" }), datasetID: seed.datasetID, vaultBindingID: seed.bindingID, dayKey: seed.today, blockRole: "daily-summary", blockOwner: "lifeos", projectionSchemaVersion: version, renderedMarkdown: seed.body, renderedContentHash: sha2562(seed.body), createIfMissing: true });
+    const days = [...dayMap].map(([dayKey, segments]) => seal2({ schemaVersion: version, datasetID: seed.datasetID, dayKey, segments }));
+    const projectionDays = disclosure ? [.../* @__PURE__ */ new Set([seed.today, ...seed.projectionDays ?? []])].sort() : [seed.today];
+    if (projectionDays.length > 1e3 || projectionDays.some((d) => !validDay(d))) throw Error("PROJECTION_DAY_LIMIT");
+    const payloads = projectionDays.map((day) => {
+      const body = disclosure ? renderDisclosureDay(entities, day, seed.now) : seed.body;
+      return seal2({ ...projectionIdentity({ datasetID: seed.datasetID, vaultBindingID: seed.bindingID, dayKey: day, blockRole: "daily-summary" }), datasetID: seed.datasetID, vaultBindingID: seed.bindingID, dayKey: day, blockRole: "daily-summary", blockOwner: "lifeos", projectionSchemaVersion: version, renderedMarkdown: body, renderedContentHash: sha2562(body), createIfMissing: true });
+    });
     const generation = (previous?.commit.generation ?? 0) + 1, writerEpoch = previous?.commit.writerEpoch ?? 1;
     const configuration = { vaultBindingID: seed.bindingID, projectionWriterMode: seed.projectionEnabled ? "direct" : "disabled", projectionWriterEpoch: seed.projectionEpoch, projectionWriterInstanceID: seed.projectionEnabled ? seed.writerID : null, projectionSchemaVersion: version, projectionRootRelativePath: "Dayisle", dailyNotePathPattern: "{date}.md", dailyNotePathPatternVersion: 1 };
-    const members = [snapshot, ...days, payload];
-    const entries = [{ kind: "snapshot", contentHash: snapshot.contentHash }, ...days.map((d) => ({ kind: "day", dayKey: d.dayKey, contentHash: d.contentHash })), { kind: "projection", projectionKey: payload.projectionKey, contentHash: payload.contentHash }];
-    const manifest = { schemaVersion: version, datasetID: seed.datasetID, writerInstanceID: seed.writerID, writerEpoch, generation, isCompleteSnapshot: true, scope, requiredCapabilities: [], capabilities: { defaultIntentTTLSeconds: 2592e3, maxIntentTTLSeconds: 2592e3, dailyReviewDraft: { profile: CAPABILITY, fields: ["dayKey", "reflection", "attributionTimeZone"], requiresPhoneConfirmation: true } }, machineTransportMode: "vault-file", projection: configuration, entries };
+    const members = [snapshot, ...days, ...payloads];
+    const entries = [{ kind: "snapshot", contentHash: snapshot.contentHash }, ...days.map((d) => ({ kind: "day", dayKey: d.dayKey, contentHash: d.contentHash })), ...payloads.map((payload) => ({ kind: "projection", projectionKey: payload.projectionKey, contentHash: payload.contentHash }))];
+    const manifest = { schemaVersion: version, datasetID: seed.datasetID, writerInstanceID: seed.writerID, writerEpoch, generation, isCompleteSnapshot: true, scope, requiredCapabilities: disclosure ? [DISCLOSURE] : [], capabilities: { defaultIntentTTLSeconds: 2592e3, maxIntentTTLSeconds: 2592e3, dailyReviewDraft: { profile: CAPABILITY, fields: ["dayKey", "reflection", "attributionTimeZone"], requiresPhoneConfirmation: true }, ...disclosure ? { disclosure: disclosure.policy } : {} }, machineTransportMode: "vault-file", projection: configuration, entries };
+    if (Buffer.byteLength(canonicalize(manifest)) > 4 * 1024 * 1024) throw Error("MANIFEST_SIZE_LIMIT");
     const commit = { datasetID: seed.datasetID, writerInstanceID: seed.writerID, writerEpoch, generation, previousCommitID: previous?.commitID ?? null, manifestPath: manifestPath({ writerEpoch, generation }), manifestHash: hashJSON(manifest), committedAt: seed.now, takeover: null };
     commit.commitID = hashOmittingRoot(commit, "commitID");
     const files = {};
@@ -3342,7 +3526,8 @@ var DayisleWire = (() => {
     const input = { datasetID: seed.datasetID, commits: [...seed.disk?.commits ?? [], files[recordPath]], files: { ...seed.disk?.files ?? {}, ...files } };
     const result = verify(input, previous);
     if (result.status !== "promoted") throw Error(result.code);
-    return { files, commitPath: recordPath, commit, manifest, snapshot, projectionKey: payload.projectionKey, verified: result.verified };
+    const projectionKeys = Object.fromEntries(payloads.map((p) => [p.dayKey, p.projectionKey]));
+    return { files, commitPath: recordPath, commit, manifest, snapshot, projectionKeys, projectionKey: projectionKeys[seed.today], verified: result.verified };
   }
   var active = null;
   var pending = null;
@@ -3353,10 +3538,10 @@ var DayisleWire = (() => {
       if (operation === "verify") {
         const result = verify(input, active);
         if (result.status === "promoted") active = result.verified;
-        value = result.status === "promoted" ? { status: result.status, snapshot: active.snapshot, commit: active.commit, manifest: active.manifest } : { status: result.status, code: result.code };
+        value = result.status === "promoted" ? { status: result.status, snapshot: active.snapshot, commit: active.commit, manifest: active.manifest, ancestry: active.ancestry } : { status: result.status, code: result.code };
       } else if (operation === "build") {
         pending = buildPublication(input, active);
-        value = { files: pending.files, commitPath: pending.commitPath, commit: pending.commit, projectionKey: pending.projectionKey };
+        value = { files: pending.files, commitPath: pending.commitPath, commit: pending.commit, snapshot: pending.snapshot, manifest: pending.manifest, projectionKey: pending.projectionKey, projectionKeys: pending.projectionKeys };
       } else if (operation === "adopt") {
         if (!pending || pending.commit.commitID !== input.commitID) throw Error("PENDING_HEAD_CHANGED");
         active = pending.verified;

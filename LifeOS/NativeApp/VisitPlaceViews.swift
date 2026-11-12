@@ -30,7 +30,7 @@ struct VisitRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
             Text(store.data.knownPlaces.first(where: { $0.id == visit.placeID })?.title ?? "尚未命名的地点").font(.headline)
-            Text((visit.arrival.map { $0.formatted(date: .abbreviated, time: .shortened) } ?? "到达时间未知") + " → " + (visit.departure.map { $0.formatted(date: .abbreviated, time: .shortened) } ?? "离开时间未知"))
+            Text((visit.arrival.map { recordTimeText($0,zone:visit.timeZoneSource == "user" ? visit.timeZone:nil) } ?? "到达时间未知") + " → " + (visit.departure.map { recordTimeText($0,zone:visit.timeZoneSource == "user" ? visit.timeZone:nil) } ?? "离开时间未知"))
                 .font(.caption).foregroundStyle(.secondary)
         }.padding(.vertical, 4)
     }
@@ -51,27 +51,40 @@ struct VisitDetailView: View {
     @State private var delete = false
     @State private var memoryID: UUID?
     @State private var newMemory: LifePlace?
+    @State private var original: LifeVisit?
+    @State private var timeZone: String?
     var visit: LifeVisit? { store.data.visits.first { $0.id == visitID } }
+    var draftKey: String { "visit:" + visitID.uuidString }
+    var hasEdits: Bool { guard let visit else { return false }; return placeID != visit.placeID || knownArrival != (visit.arrival != nil) || knownDeparture != (visit.departure != nil) || (knownArrival && arrival != visit.arrival) || (knownDeparture && departure != visit.departure) || note != visit.note || state != visit.state || timeZone != (visit.timeZoneSource == "user" ? visit.timeZone:nil) }
+    var draftFields: [String:String] {
+        guard let original else { return [:] }; var edited = original
+        edited.placeID = placeID; edited.arrival = knownArrival ? arrival:nil; edited.departure = knownDeparture ? departure:nil; edited.note = note; edited.state = state; edited.timeZoneSource = timeZone == nil ? nil:"user"; if let timeZone { edited.timeZone = timeZone }
+        return EditorDrafts.fields(RecordDraft(original:original,edited:edited))
+    }
     var body: some View {
         if let visit {
             Form {
+                EditorConflictNotice(changed: original.map { $0 != visit } ?? false, current: visit.note + "\n" + (visit.arrival?.formatted() ?? "到达未知") + " → " + (visit.departure?.formatted() ?? "离开未知")) { original = visit }
                 Section { Map { Marker("系统送达的大致位置", coordinate: CLLocationCoordinate2D(latitude: visit.latitude, longitude: visit.longitude)) }.frame(height: 220).clipShape(RoundedRectangle(cornerRadius: 16)); Text("位置误差约 \(Int(visit.accuracy.rounded())) 米 · 来源：苹果低功耗到访").font(.caption).foregroundStyle(.secondary) }
                 Section("你的核对") {
                     Picker("地点", selection: $placeID) { Text("仍未知").tag(UUID?.none); ForEach(store.data.knownPlaces) { Text($0.title).tag(Optional($0.id)) } }
                     Button("在这个位置新增稳定地点") { addPlace = true }
                     Toggle("知道到达时间", isOn: $knownArrival); if knownArrival { DatePicker("到达", selection: $arrival) }
                     Toggle("知道离开时间", isOn: $knownDeparture); if knownDeparture { DatePicker("离开", selection: $departure) }
+                    AttributionZonePicker(zone:$timeZone)
+                    Text("系统到访回调不提供所在地时区。未知时以当前时区显示，你可以核对后填写；不会把收到回调时的时区当作所在地证明。") .font(.caption).foregroundStyle(.secondary)
                     Picker("结论", selection: $state) { Text("待核对").tag("inferred"); Text("我确认到访").tag("confirmed"); Text("排除这次记录").tag("rejected") }
                     TextField("补充说明", text: $note, axis: .vertical).lineLimit(3...8)
                 }
                 Section {
-                    Button("确认保存核对结果") { _ = store.reviseVisit(visit, placeID: placeID, arrival: knownArrival ? arrival : nil, departure: knownDeparture ? departure : nil, note: note, state: state) }
+                    Button("确认保存核对结果") { if store.reviseVisit(original ?? visit, placeID: placeID, arrival: knownArrival ? arrival : nil, departure: knownDeparture ? departure : nil, note: note, state: state, timeZone:timeZone) { original = self.visit; EditorDrafts.remove(draftKey) } }
                     if let date = visit.arrival ?? visit.departure { NavigationLink("在这一天的时间线回看") { TodayView(day: date) } }
                     if visit.state == "confirmed" {
                         Button("从这次到访写一段记忆") {
                             if let saved = store.data.places.first(where: { $0.visitID == visit.id }) { memoryID = saved.id; return }
                             guard let occurred = visit.arrival ?? visit.departure else { store.error = "先核对一个已知时间，再创建记忆。"; return }
-                            let memory = LifePlace(title: store.data.knownPlaces.first(where: { $0.id == visit.placeID })?.title ?? "一次到访", note: "", latitude: visit.latitude, longitude: visit.longitude, occurredAt: occurred, knownPlaceID: visit.placeID, visitID: visit.id)
+                            var memory = LifePlace(title: store.data.knownPlaces.first(where: { $0.id == visit.placeID })?.title ?? "一次到访", note: "", latitude: visit.latitude, longitude: visit.longitude, occurredAt: occurred, knownPlaceID: visit.placeID, visitID: visit.id)
+                            memory.timeZone = visit.timeZoneSource == "user" ? visit.timeZone:nil
                             newMemory = memory
                         }
                     }
@@ -79,7 +92,9 @@ struct VisitDetailView: View {
                     Text("修订保留原版本。核对后的内容不会被晚到的自动回调覆盖；删除会留下本机删除标记，避免旧备份或晚到回调恢复它。") .font(.caption).foregroundStyle(.secondary)
                 }
             }.navigationTitle("核对到访").navigationBarTitleDisplayMode(.inline)
-                .onAppear { if !initialized { initialized = true; placeID = visit.placeID; knownArrival = visit.arrival != nil; knownDeparture = visit.departure != nil; arrival = visit.arrival ?? visit.receivedAt; departure = visit.departure ?? visit.receivedAt; note = visit.note; state = visit.state } }
+                .environment(\.timeZone,timeZone.flatMap(TimeZone.init(identifier:)) ?? .current)
+                .onAppear { if !initialized { initialized = true; let draft = EditorDrafts.value(draftKey,as:RecordDraft<LifeVisit>.self); original = draft?.original ?? visit; let value = draft?.edited ?? visit; placeID = value.placeID; knownArrival = value.arrival != nil; knownDeparture = value.departure != nil; arrival = value.arrival ?? value.receivedAt; departure = value.departure ?? value.receivedAt; note = value.note; state = value.state; timeZone = value.timeZoneSource == "user" ? value.timeZone:nil } }
+                .retainingDraft(draftKey,fields:draftFields,active:initialized && self.visit != nil && hasEdits)
                 .sheet(isPresented: $addPlace) { NavigationStack { KnownPlaceEditor(place: KnownPlace(title: "", latitude: visit.latitude, longitude: visit.longitude)) { placeID = $0 } } }
                 .sheet(item: $newMemory) { NewMemoryView(seed: $0, contextKey: "new-memory:" + visit.id.uuidString) }
                 .navigationDestination(item: $memoryID) { MemoryDetailView(memoryID: $0) }

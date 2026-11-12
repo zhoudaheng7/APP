@@ -76,7 +76,7 @@ private struct RetainedEditorDraft: ViewModifier {
     var signature: String { fields.keys.sorted().map { $0 + "=" + (fields[$0] ?? "") }.joined(separator: "\u{0}") }
     func save() { if active && !fields.isEmpty && version == EditorDrafts.version(key) { EditorDrafts.save(key, fields: fields) } }
     func body(content: Content) -> some View {
-        content.onAppear { version = EditorDrafts.version(key) }.task(id: signature + String(active)) {
+        content.onAppear { version = EditorDrafts.version(key) }.onChange(of:signature) { _, _ in version = EditorDrafts.version(key) }.task(id: signature + String(active) + String(version ?? -1)) {
             do { try await Task.sleep(for: .milliseconds(450)); if !Task.isCancelled { save() } } catch {}
         }.onDisappear { save() }.onChange(of: phase) { _, new in if new != .active { save() } }
     }

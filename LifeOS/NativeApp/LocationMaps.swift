@@ -241,11 +241,16 @@ struct RouteDetailView: View {
     @State private var tripID: UUID?
     @State private var initialized = false
     @State private var delete = false
+    @State private var purpose = "未知"
+    @State private var expectedRevision: Int64 = 1
+    var draftKey: String { "route:" + routeID.uuidString }
+    var draftFields: [String:String] { ["title":title,"note":note,"transport":transport,"tripID":tripID?.uuidString ?? "","purpose":purpose,"revision":String(expectedRevision)] }
     var body: some View {
         if let route = store.data.routes.first(where: { $0.id == routeID }) {
             let index = min(max(0, Int(position)), max(0, route.points.count - 1))
             let visible = Array(route.points.prefix(index + 1))
             ScrollView { VStack(alignment: .leading, spacing: 18) {
+                if (route.metadataRevision ?? 1) != expectedRevision { VStack(alignment:.leading) { Text("路线说明已被更新，请先核对："); Text(route.title + "\n" + (route.note ?? "")).foregroundStyle(.secondary); Button("我已核对，继续保存本页修改") { expectedRevision = route.metadataRevision ?? 1 } } }
                 Map {
                     ForEach(Array(Set(visible.map(\.segment))).sorted(), id: \.self) { segment in
                         MapPolyline(coordinates: visible.filter { $0.segment == segment }.map { CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude) }).stroke(.teal, lineWidth: 5)
@@ -259,14 +264,17 @@ struct RouteDetailView: View {
                 TextField("路线标题", text: $title).font(.title2.bold())
                 TextField("沿途故事", text: $note, axis: .vertical).lineLimit(3...8)
                 Picker("交通方式（手动）", selection: $transport) { ForEach(["未知","步行","跑步","骑行","驾车","公共交通","其他"], id: \.self) { Text($0) } }
+                Picker("这段路的用途（手动确认）", selection:$purpose) { ForEach(["未知","通勤","散步","运动","旅行","其他"],id:\.self) { Text($0) } }
                 Picker("关联行程", selection: $tripID) { Text("独立路线").tag(UUID?.none); ForEach(store.data.trips) { Text($0.title).tag(Optional($0.id)) } }
-                Text(route.start.formatted(date: .complete, time: .shortened)).foregroundStyle(.secondary)
+                Text(recordTimeText(route.start,zone:route.timeZone)).foregroundStyle(.secondary)
+                if let end = route.end { Text("起止跨度 " + minutesText(end.timeIntervalSince(route.start)) + "，含中断和暂停，不代表持续活动时长。").font(.caption).foregroundStyle(.secondary) }
                 ForEach(Array((route.gaps ?? []).enumerated()), id: \.offset) { _, gap in Label(gap.reason + " · " + gap.from.formatted(date: .abbreviated, time: .shortened), systemImage: "line.diagonal").font(.caption).foregroundStyle(.secondary) }
                 Text("滑动只回看实际采样，不插值推算你经过的位置。中断片段保持分开；路线不自动证明活动或成果。") .font(.caption).foregroundStyle(.secondary)
-                Button("保存说明") { _ = store.saveRoute(route, title: title, note: note, transport: transport, tripID: tripID) }.disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                Button("保存说明") { var original = route; original.metadataRevision = expectedRevision; if store.saveRoute(original, title: title, note: note, transport: transport, tripID: tripID, purpose:purpose) { expectedRevision += 1; EditorDrafts.remove(draftKey) } }.disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 Button("删除这段路线", role: .destructive) { delete = true }.disabled(route.end == nil)
             }.padding() }.navigationTitle("沿途").navigationBarTitleDisplayMode(.inline)
-                .onAppear { if !initialized { initialized = true; title = route.title; note = route.note ?? ""; transport = route.transport ?? "未知"; tripID = route.tripID; position = Double(max(0, route.points.count - 1)) } }
+                .onAppear { if !initialized { initialized = true; title = route.title; note = route.note ?? ""; transport = route.transport ?? "未知"; tripID = route.tripID; purpose = route.purpose ?? "未知"; expectedRevision = route.metadataRevision ?? 1; position = Double(max(0, route.points.count - 1)); if let draft = EditorDrafts.load(draftKey) { title = draft["title"] ?? title; note = draft["note"] ?? note; transport = draft["transport"] ?? transport; purpose = draft["purpose"] ?? purpose; tripID = draft["tripID"].flatMap(UUID.init(uuidString:)); expectedRevision = draft["revision"].flatMap(Int64.init) ?? expectedRevision } } }
+                .retainingDraft(draftKey,fields:draftFields,active:initialized && (title != route.title || note != (route.note ?? "") || transport != (route.transport ?? "未知") || tripID != route.tripID || purpose != (route.purpose ?? "未知")))
                 .confirmationDialog("删除整段精确路线？", isPresented: $delete, titleVisibility: .visible) { Button("删除", role: .destructive) { store.deleteRoute(route) }; Button("取消", role: .cancel) {} } message: { Text("行程和其他文字记忆会保留，路线采样与其说明将删除。") }
         } else { ContentUnavailableView("路线已删除", systemImage: "map") }
     }

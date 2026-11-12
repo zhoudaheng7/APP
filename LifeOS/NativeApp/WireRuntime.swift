@@ -11,6 +11,7 @@ import JavaScriptCore
     }
     func call(_ operation: String, _ input: [String:Any]) throws -> [String:Any] {
         let bytes = try JSONSerialization.data(withJSONObject: input, options: [.sortedKeys])
+        guard bytes.count <= 56 * 1024 * 1024 else { throw LifeError.message("本次同步超过校验器容量限制，未发布；请缩小披露范围。") }
         guard let text = String(data: bytes, encoding: .utf8), let api = context.objectForKeyedSubscript("DayisleWire"), let function = api.objectForKeyedSubscript("invoke") else { throw LifeError.invalidValue }
         context.exception = nil
         guard let response = function.call(withArguments: [operation,text])?.toString(), context.exception == nil,
@@ -31,6 +32,26 @@ func wireInstant(_ date: Date) -> String {
 extension UUID { var wire: String { uuidString.lowercased() } }
 
 extension LifeSnapshot {
+    func disclosedWireEntities() -> [[String:Any]] {
+        let permissions = Dictionary(uniqueKeysWithValues:(disclosure.grants ?? []).map { ($0.id,$0) })
+        return wireEntities().compactMap { raw in
+            guard let type = raw["entityType"] as? String, let id = raw["entityID"] as? String, let permission = permissions[type + ":" + id] else { return nil }
+            let fields: [String]
+            switch type {
+            case "Task": fields = ["lifecycleStatus"]
+            case "DraftPlan": fields = ["lifecycleStatus","plannedStart","plannedEnd","attributionTimeZone"]
+            case "CalendarCommitment": fields = (raw["allDay"] as? Bool == true) ? ["lifecycleStatus","allDay","localStartDate","localEndDateExclusive","calendarTimeZone"]:["lifecycleStatus","allDay","start","end","attributionTimeZone"]
+            case "ActualSession": fields = ["runState","factState","actualStart","actualEnd","attributionTimeZone"]
+            case "DailyReview": fields = ["dayKey"]
+            default: return nil
+            }
+            var value: [String:Any] = ["entityType":type,"entityID":id,"revision":raw["revision"] ?? 1]
+            for field in fields { value[field] = raw[field] }
+            if permission.text { let field = type == "DailyReview" ? "reflection":"title"; value[field] = raw[field] }
+            if let task = raw["taskID"] as? String, permissions["Task:" + task] != nil { value["taskID"] = task }
+            return value
+        }
+    }
     func wireEntities() -> [[String:Any]] {
         var result: [[String:Any]] = tasks.filter { $0.deletedAt == nil }.map { task in
             var row: [String:Any] = ["entityType":"Task","entityID":task.id.wire,"revision":task.revision,"title":task.title,"lifecycleStatus":task.archivedAt != nil ? "archived" : task.cancelledAt != nil ? "cancelled" : task.completedAt != nil ? "completed" : "open"]

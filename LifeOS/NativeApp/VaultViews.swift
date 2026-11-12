@@ -2,6 +2,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct VaultSettingsView: View {
+    @Environment(LifeStore.self) private var store
     @State private var service = LifeVault.shared
     @State private var folderPicker = false
     @State private var preview = false
@@ -18,9 +19,11 @@ struct VaultSettingsView: View {
             }
             if service.binding != nil {
                 Section("我决定披露什么") {
-                    Text("本版交换任务、私人计划、日历承诺、实际投入和正式日复盘，含标题、时间、状态与复盘文字。精确位置、到访、路线、照片、EXIF和人物别名不进入Vault。") .font(.subheadline)
-                    Button("预览本次披露并准备发布", systemImage: "eye") { service.makePreview(); preview = true }.disabled(service.busy)
-                    Text("停止发布只影响以后；已经同步到Vault、其他设备或插件缓存的内容仍存在。本版不将停止发布伪装成撤回所有历史副本。") .font(.caption).foregroundStyle(.secondary)
+                    NavigationLink("逐项选择披露或撤回") { DisclosureSelectionView() }
+                    Text("默认不披露。任务、计划、承诺、实际和日复盘可逐项选择，文字可单独关闭；精确位置、到访、路线、照片、EXIF、人物和私密目标不进入Vault。") .font(.subheadline)
+                    if store.data.disclosure.grants != store.data.disclosure.lastPublishedGrants { Text("披露选择尚未发布。") .foregroundStyle(.orange) }
+                    Button("完整预览并准备发布", systemImage: "eye") { Task { await service.makePreview(); if service.publicationReady { preview = true } } }.disabled(service.busy)
+                    Text("撤回保留手机原记录，配套新插件在校验新代后清除当前视图。旧受管块须另行更新；手改内容、旧插件和外部/离线副本不冒充已抹去。") .font(.caption).foregroundStyle(.secondary)
                 }
                 Section("可编辑笔记中的派生块") {
                     Toggle("允许在Dayisle目录写入受管块", isOn: Binding(get: { service.binding?.projectionEnabled ?? false }, set: { service.setProjection($0) })).disabled(service.busy)
@@ -45,11 +48,7 @@ struct VaultSettingsView: View {
                 Button("取消", role: .cancel) { pendingFolder = nil }
             } message: { Text("沿用要求原永久账本可达。新数据集只用于新的空目录，本机记录保留；不会删除旧Vault中的历史披露。") }
             .confirmationDialog("停止后续发布并忘记目录？", isPresented: $unbind, titleVisibility: .visible) { Button("停止并忘记授权", role: .destructive) { service.unbind() }; Button("取消", role: .cancel) {} } message: { Text("保留本机事实。已经披露到Vault及其他设备的文件不会自动撤回或删除。") }
-            .sheet(isPresented: $preview) { NavigationStack { List {
-                Section("本次披露范围") { Text(service.message); Text("发布五类事实的全部当前记录；此下为今日笔记的可读预览。未包含精确地理或照片。") .font(.caption).foregroundStyle(.secondary) }
-                Section("今日派生正文") { Text(service.preview).textSelection(.enabled).font(.subheadline) }
-                Section { Button("确认发布以上五类事实") { Task { await service.publish(); preview = false } }.disabled(service.busy); if service.busy { ProgressView() } }
-            }.navigationTitle("先看再发布").toolbar { Button("关闭") { preview = false }.disabled(service.busy) } } }
+            .sheet(isPresented:$preview) { DisclosurePublicationPreview(service:service) }
     }
 }
 

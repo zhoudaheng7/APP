@@ -12,6 +12,30 @@ struct VaultBinding: Codable {
     var mappings: [String:ProjectionMapping] = [:]
     var pluginHashes: [String:String] = [:]
 }
+struct DisclosurePreviewField: Identifiable { let id: String; let value: String }
+struct DisclosurePreviewRecord: Identifiable {
+    let id: String
+    let kind: String
+    let title: String
+    let reflection: String?
+    let fields: [DisclosurePreviewField]
+    init(_ row: [String:Any]) {
+        let type = row["entityType"] as? String ?? ""
+        kind = ["Task":"任务","DraftPlan":"私人计划","CalendarCommitment":"日历承诺","ActualSession":"实际投入","DailyReview":"日复盘"][type] ?? type
+        id = type + ":" + (row["entityID"] as? String ?? "")
+        title = row["title"] as? String ?? row["dayKey"] as? String ?? "不披露标题"
+        reflection = row["reflection"] as? String
+        let labels = ["lifecycleStatus":"状态","runState":"计时状态","factState":"核对状态","plannedStart":"开始（UTC）","plannedEnd":"结束（UTC）","start":"开始（UTC）","end":"结束（UTC）","actualStart":"实际开始（UTC）","actualEnd":"实际结束（UTC）","dayKey":"归属日期","attributionTimeZone":"归属时区","calendarTimeZone":"日历时区","localStartDate":"全天开始日期","localEndDateExclusive":"全天截止（不含）","allDay":"全天","taskID":"已选择任务的同步身份"]
+        fields = labels.keys.sorted().compactMap { key in guard let value = row[key] else { return nil }; return DisclosurePreviewField(id:labels[key]!,value:value is NSNull ? "未知/未结束":String(describing:value)) }
+    }
+}
+private struct PublicationPreview {
+    var candidate: [String:Any]
+    var files: [String:Data]
+    var disk: VaultDisk
+    var sourceFingerprint: String
+    var createdAt: Date
+}
 
 @MainActor @Observable final class LifeVault {
     static let shared = LifeVault()
@@ -20,8 +44,12 @@ struct VaultBinding: Codable {
     private(set) var busy = false
     var message = ""
     private(set) var preview = ""
+    private(set) var previewRecords: [DisclosurePreviewRecord] = []
+    private(set) var previewDate: Date?
+    private var publicationCandidate: PublicationPreview?
     private(set) var verifiedCommit: [String:Any]?
     private(set) var projectionKey: String?
+    private var projectionKeys: [String:String] = [:]
     private var lastDisk = VaultDisk()
     private var projectionCandidate: [String:Any]?
     private(set) var incoming: [IncomingReview] = []
@@ -67,40 +95,60 @@ struct VaultBinding: Codable {
             }
         } catch { message = error.localizedDescription }
     }
-    func makePreview() {
-        preview = store.data.dailyProjectionBody(day: Date())
-        message = "将发布任务、私人计划、日历承诺、实际投入与正式日复盘的全部当前记录；日段覆盖最近30天和未来2天。仅包含标题、时间、状态与复盘正文，不包含地点、路线、照片、人物、目标私密说明或密码。"
+    var publicationReady: Bool { publicationCandidate != nil }
+    private func publicFingerprint(_ binding: VaultBinding) throws -> String {
+        let state = store.data
+        let fields: [String:Any] = ["datasetID":state.disclosure.datasetID.wire,"writerID":state.disclosure.writerID.wire,"bindingID":binding.id.wire,"bookmark":hashBytes(binding.bookmark),"projectionEnabled":binding.projectionEnabled,"projectionEpoch":binding.projectionEpoch,"projectionDays":binding.mappings.keys.sorted(),"grants":(state.disclosure.grants ?? []).map(\.wireValue),"entities":state.disclosedWireEntities(),"deleted":state.wireTombstones()]
+        return hashBytes(try JSONSerialization.data(withJSONObject:fields,options:[.sortedKeys]))
     }
-    func publish() async {
-        guard !busy, let binding else { return }; busy = true; defer { busy = false }
+    func makePreview() async {
+        guard !busy, let binding else { return }; busy = true; publicationCandidate = nil; previewRecords = []; defer { busy = false }
         do {
             let root = try root(), access = root.startAccessingSecurityScopedResource(); defer { if access { root.stopAccessingSecurityScopedResource() } }
-            let disk = try await Task.detached { try VaultFiles.disk(root: root) }.value
+            let disk = try await Task.detached { try VaultFiles.disk(root:root) }.value
+            guard store.refreshForExternalUse() else { throw LifeError.message("本机数据未能重新核对，未准备发布。") }
+            let state = store.data, settings = state.disclosure
+            guard settings.enabled, settings.datasetID == binding.datasetID, settings.writerID == binding.writerID else { throw LifeError.message("目录绑定与本机发布身份不一致，请重新绑定。") }
             let engine = try runtime ?? WireRuntime(); runtime = engine
-            let settings = store.data.disclosure
-            guard settings.enabled, settings.datasetID == binding.datasetID, settings.writerID == binding.writerID else { throw LifeError.message("目录绑定与本机发布身份不一致，请重新绑定，未发布。") }
-            if disk.commits.isEmpty && settings.lastCommitID != nil { throw LifeError.message("原账本在这个目录不可见。请恢复同步完整性；若确定使用新的空目录，须明确建立新数据集。") }
+            if disk.commits.isEmpty && settings.lastCommitID != nil { throw LifeError.message("这个目录尚未包含本机已经发布的账本，请等待同步；不要自动另建或覆盖。") }
             if !disk.commits.isEmpty {
-                let verified = try engine.call("verify", ["commits":disk.commits,"files":disk.files,"datasetID":settings.datasetID.wire])
+                let verified = try engine.call("verify",["commits":disk.commits,"files":disk.files,"datasetID":settings.datasetID.wire])
                 guard verified["status"] as? String == "promoted" else { throw LifeError.message("原同步账本校验失败，未覆盖。") }
+                if let floor = settings.lastCommitID, !(verified["ancestry"] as? [String] ?? []).contains(floor) { throw LifeError.message("目录尚未包含本机最近的发布记录，已阻止旧同步覆盖。") }
             }
-            let now = Date(); let start = Calendar.current.date(byAdding: .day, value: -30, to: now)!, end = Calendar.current.date(byAdding: .day, value: 3, to: now)!
-            let state = store.data
-            guard !state.sessions.contains(where: { $0.restorePending == true && $0.end == nil }) else { throw LifeError.message("先核对从备份恢复的未结束记录，再发布Obsidian同步，避免把未知时间作为连续计时。") }
-            let seed: [String:Any] = ["datasetID":settings.datasetID.wire,"writerID":settings.writerID.wire,"bindingID":binding.id.wire,"today":LifeSnapshot.dayKey(now),"startDay":LifeSnapshot.dayKey(start),"endDay":LifeSnapshot.dayKey(end),"now":wireInstant(now),"projectionEnabled":binding.projectionEnabled,"projectionEpoch":binding.projectionEpoch,"body":state.dailyProjectionBody(day: now),"entities":state.wireEntities(),"deleted":state.wireTombstones(),"disk":["commits":disk.commits,"files":disk.files,"datasetID":settings.datasetID.wire]]
-            let candidate = try engine.call("build", seed)
-            guard let encoded = candidate["files"] as? [String:String], let commit = candidate["commit"] as? [String:Any], let commitID = commit["commitID"] as? String, let commitPath = candidate["commitPath"] as? String else { throw LifeError.invalidValue }
+            let selectedIDs = Set((settings.grants ?? []).filter { $0.entityType == "ActualSession" }.map(\.entityID))
+            guard !state.sessions.contains(where:{ selectedIDs.contains($0.id) && $0.restorePending == true && $0.end == nil }) else { throw LifeError.message("先核对已选实际记录中恢复的未结束计时，再披露它。") }
+            let now = Date(), start = Calendar.current.date(byAdding:.day,value:-30,to:now)!, end = Calendar.current.date(byAdding:.day,value:3,to:now)!
+            let seed: [String:Any] = ["datasetID":settings.datasetID.wire,"writerID":settings.writerID.wire,"bindingID":binding.id.wire,"today":LifeSnapshot.dayKey(now),"startDay":LifeSnapshot.dayKey(start),"endDay":LifeSnapshot.dayKey(end),"now":wireInstant(now),"projectionEnabled":binding.projectionEnabled,"projectionEpoch":binding.projectionEpoch,"projectionDays":binding.mappings.keys.sorted(),"entities":state.disclosedWireEntities(),"deleted":state.wireTombstones(),"disclosure":["grants":(settings.grants ?? []).map(\.wireValue)],"disk":["commits":disk.commits,"files":disk.files,"datasetID":settings.datasetID.wire]]
+            let candidate = try engine.call("build",seed)
+            guard let encoded = candidate["files"] as? [String:String], let snapshot = candidate["snapshot"] as? [String:Any], let manifest = candidate["manifest"] as? [String:Any], let rows = snapshot["entities"] as? [[String:Any]] else { throw LifeError.invalidValue }
             var files: [String:Data] = [:]
-            for (path,base64) in encoded { guard let bytes = Data(base64Encoded: base64) else { throw LifeError.invalidValue }; files[path] = bytes }
-            let expected = Set(disk.commits)
-            try await Task.detached { try VaultFiles.writePublication(root: root, files: files, commitPath: commitPath, expectedCommits: expected, datasetID: settings.datasetID.wire, commitID: commitID) }.value
-            _ = try engine.call("adopt", ["commitID":commitID]); verifiedCommit = commit; projectionKey = candidate["projectionKey"] as? String
-            var published = disk; published.commits.append(encoded[commitPath]!); published.files.merge(encoded) { _,new in new }; lastDisk = published
-            if store.commit(kind: "vault.published", id: settings.datasetID, { $0.disclosure.lastCommitID = commitID; $0.disclosure.lastSequence = (commit["generation"] as? NSNumber)?.int64Value ?? 0 }) {
-                message = "完整同步代已发布。插件须在文件同步完成后校验再显示；尚未改动任何笔记正文。"
-            } else { message = "同步代已发布，但本机发布回执保存失败；请先重新读取，不要更换数据集。" }
-            projectionCandidate = nil
+            for (path,base64) in encoded { guard let bytes = Data(base64Encoded:base64) else { throw LifeError.invalidValue }; files[path] = bytes }
+            let policy = (manifest["capabilities"] as? [String:Any])?["disclosure"] as? [String:Any] ?? [:]
+            preview = String(decoding:try JSONSerialization.data(withJSONObject:["snapshot":snapshot,"disclosure":policy],options:[.prettyPrinted,.sortedKeys]),as:UTF8.self)
+            previewRecords = rows.map(DisclosurePreviewRecord.init); previewDate = now
+            publicationCandidate = PublicationPreview(candidate:candidate,files:files,disk:disk,sourceFingerprint:try publicFingerprint(binding),createdAt:now)
+            let withdrawn = (policy["stamps"] as? [[String:Any]] ?? []).filter { $0["state"] as? String == "withdrawn" }.count
+            message = "已准备完整预览：\(rows.count)条当前授权记录，本次撤回\(withdrawn)条。同步身份与摘要历史保留以防旧内容重现；本机原记录保留。确认前尚未写入Vault。"
         } catch { message = error.localizedDescription }
+    }
+    func publish() async {
+        guard !busy, let binding, let prepared = publicationCandidate else { message = "先完整预览，再确认发布。"; return }; busy = true; defer { busy = false }
+        do {
+            guard store.refreshForExternalUse(), Date().timeIntervalSince(prepared.createdAt) <= 900, try publicFingerprint(binding) == prepared.sourceFingerprint else { publicationCandidate = nil; throw LifeError.message("记录、披露选择或发布设置在预览后变化，或预览超过15分钟。请重新预览；这次没有写入。") }
+            let candidate = prepared.candidate, settings = store.data.disclosure
+            guard let engine = runtime, let commit = candidate["commit"] as? [String:Any], let commitID = commit["commitID"] as? String, let commitPath = candidate["commitPath"] as? String else { throw LifeError.invalidValue }
+            let root = try root(), access = root.startAccessingSecurityScopedResource(); defer { if access { root.stopAccessingSecurityScopedResource() } }
+            let files = prepared.files, expected = Set(prepared.disk.commits)
+            try await Task.detached { try VaultFiles.writePublication(root:root,files:files,commitPath:commitPath,expectedCommits:expected,datasetID:settings.datasetID.wire,commitID:commitID) }.value
+            _ = try engine.call("adopt",["commitID":commitID]); verifiedCommit = commit; projectionKey = candidate["projectionKey"] as? String; projectionKeys = candidate["projectionKeys"] as? [String:String] ?? [:]
+            var published = prepared.disk; published.commits.append(files[commitPath]!.base64EncodedString()); published.files.merge(files.mapValues { $0.base64EncodedString() }) { _,new in new }; lastDisk = published
+            if store.commit(kind: "vault.published", id: settings.datasetID, { $0.disclosure.lastCommitID = commitID; $0.disclosure.lastSequence = (commit["generation"] as? NSNumber)?.int64Value ?? 0; $0.disclosure.lastPublishedGrants = settings.grants ?? [] }) {
+                message = "预览的完整授权视图已发布。配套插件校验后替换当前视图；受管笔记块须另行核对并更新，外部/离线副本不会被自动抹去。"
+                if (try? publicFingerprint(binding)) != prepared.sourceFingerprint { message += " 发布过程中又有修改，后来的选择尚未发布，请重新预览。" }
+            } else { message = "同步代已发布，但本机发布回执保存失败；请先重新读取，不要更换数据集。" }
+            publicationCandidate = nil; projectionCandidate = nil
+        } catch { message = error.localizedDescription + " 若文件提供方曾中断，请重新读取核对提交状态；不要把失败当作撤回完成。" }
     }
     func setProjection(_ enabled: Bool) {
         guard !busy, var next = binding, next.projectionEnabled != enabled else { return }

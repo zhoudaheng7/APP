@@ -126,6 +126,7 @@ struct LifeRoute: Codable, Identifiable, Equatable {
     var gaps: [RouteGap]?
     var timeZone: String? = TimeZone.current.identifier
     var purpose: String?
+    var metadataRevision: Int64?
 }
 
 /// Internal durable pending-change journal. Not an exchange generation or wire DTO.

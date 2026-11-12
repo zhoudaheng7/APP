@@ -45,6 +45,13 @@ struct RouteGap: Codable, Equatable {
     var to: Date?
     var reason: String
 }
+struct RouteStory: Codable {
+    var title: String
+    var note: String?
+    var transport: String?
+    var purpose: String?
+    var tripID: UUID?
+}
 struct LifeTrip: Codable, Identifiable, Equatable {
     var id = UUID()
     var title: String
@@ -108,6 +115,13 @@ struct CollectionWindow: Codable, Identifiable, Equatable {
     var end: Date?
     var mode: String
 }
+struct DisclosureGrant: Codable, Equatable, Identifiable {
+    var entityType: String
+    var entityID: UUID
+    var text = true
+    var id: String { entityType + ":" + entityID.wire }
+    var wireValue: [String:Any] { ["entityType":entityType,"entityID":entityID.wire,"text":text] }
+}
 struct DisclosureSettings: Codable, Equatable {
     var enabled = false
     var datasetID = UUID()
@@ -115,6 +129,8 @@ struct DisclosureSettings: Codable, Equatable {
     var approvedAt: Date?
     var lastSequence: Int64 = 0
     var lastCommitID: String?
+    var grants: [DisclosureGrant]?
+    var lastPublishedGrants: [DisclosureGrant]?
 }
 struct LifeBackup: Codable {
     var format = "dayisle-private-backup/v2"
@@ -152,6 +168,8 @@ extension LifeSnapshot {
               Set(vaultOperations.map(\.id)).count == vaultOperations.count, vaultOperations.count <= 10000,
               vaultOperations.allSatisfy({ ["accepted","rejected","expired","cancelled"].contains($0.status) && $0.payloadHash.count == 64 && $0.receipt.count <= 65536 }),
               Set(tombstones.map { $0.kind + ":" + $0.id.uuidString }).count == tombstones.count else { throw LifeError.invalidValue }
+        let permissions = disclosure.grants ?? []
+        guard permissions.count <= 5000, Set(permissions.map(\.id)).count == permissions.count, permissions.allSatisfy({ ["Task","DraftPlan","CalendarCommitment","ActualSession","DailyReview"].contains($0.entityType) }) else { throw LifeError.invalidValue }
         var dates: [Date] = []
         for task in tasks { dates.append(task.createdAt); if let completed = task.completedAt { dates.append(completed) }; if let due = task.dueAt { dates.append(due) } }
         for plan in plans { dates.append(plan.start); dates.append(plan.end) }
@@ -168,6 +186,7 @@ extension LifeSnapshot {
         revisions.append(contentsOf: plans.map(\.revision)); revisions.append(contentsOf: sessions.map(\.revision)); revisions.append(contentsOf: keyResults.map(\.revision))
         revisions.append(contentsOf: goals.map { $0.revision ?? 1 }); revisions.append(contentsOf: reviews.map { $0.revision ?? 1 })
         revisions.append(contentsOf: knownPlaces.map(\.revision)); revisions.append(contentsOf: visits.map(\.revision)); revisions.append(contentsOf: trips.map(\.revision)); revisions.append(contentsOf: periodReviews.map(\.revision))
+        revisions.append(contentsOf: routes.map { $0.metadataRevision ?? 1 })
         guard revisions.allSatisfy({ (1...9_007_199_254_740_991).contains($0) }), (0...9_007_199_254_740_991).contains(disclosure.lastSequence),
               routes.allSatisfy({ $0.points.allSatisfy { point in (0...9_007_199_254_740_991).contains(point.segment) && (point.accuracy == nil || (point.accuracy!.isFinite && point.accuracy! >= 0)) } }) else { throw LifeError.message("记录计数或采样信息无效，原数据已保留。") }
         let zones = plans.map(\.timeZone) + sessions.map(\.timeZone) + reviews.map(\.timeZone) + places.compactMap(\.timeZone) + routes.compactMap(\.timeZone) + trips.compactMap(\.timeZone)

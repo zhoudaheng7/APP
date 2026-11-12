@@ -62,6 +62,20 @@ enum MediaMutation { case put(UUID, Data), remove(UUID) }
 
     static func fingerprint(_ bytes: Data) -> String { SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined() }
 
+    /// Refresh before an external publication preview; never silently publish stale consent.
+    @discardableResult func refreshForExternalUse() -> Bool {
+        guard ready else { return false }
+        do {
+            container.viewContext.reset(); row = nil
+            let request = NSFetchRequest<NSManagedObject>(entityName:"LifeOSSnapshot"); request.fetchLimit = 2
+            request.predicate = NSPredicate(format:"key == %@","current"); request.shouldRefreshRefetchedObjects = true; request.returnsObjectsAsFaults = false
+            let rows = try container.viewContext.fetch(request); guard rows.count <= 1 else { throw LifeError.invalidValue }; row = rows.first
+            guard let bytes = row?.value(forKey:"payload") as? Data else { if payloadFingerprint != nil { throw LifeError.message("本机保存的快照在外部变化，已停止对外发布。") }; return true }
+            if Self.fingerprint(bytes) != payloadFingerprint { let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .millisecondsSince1970; let fresh = try decoder.decode(LifeSnapshot.self,from:bytes); try fresh.validate(); data = fresh; payloadFingerprint = Self.fingerprint(bytes); imageCache.removeAllObjects() }
+            return true
+        } catch { self.error = error.localizedDescription; return false }
+    }
+
     @discardableResult func commit(kind: String, id: UUID, media: [MediaMutation] = [], _ change: (inout LifeSnapshot) throws -> Void) -> Bool {
         guard ready else { error = "本机数据尚未成功打开，暂时不能保存。"; return false }
         var candidate = data
@@ -84,6 +98,9 @@ enum MediaMutation { case put(UUID, Data), remove(UUID) }
                 }
             }
             try change(&candidate)
+            let wireKinds = ["task":"Task","plan":"DraftPlan","commitment":"CalendarCommitment","actual":"ActualSession","review":"DailyReview"]
+            let deletedGrants = Set(candidate.tombstones.compactMap { marker in wireKinds[marker.kind].map { $0 + ":" + marker.id.wire } })
+            candidate.disclosure.grants = candidate.disclosure.grants?.filter { !deletedGrants.contains($0.id) }
             candidate.pendingChanges.append(LocalChange(kind: kind, entityID: id))
             try candidate.validate()
             let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .millisecondsSince1970; encoder.outputFormatting = [.sortedKeys]

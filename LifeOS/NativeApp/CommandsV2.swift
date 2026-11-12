@@ -109,13 +109,14 @@ extension LifeStore {
             else { state.knownPlaces.append(place) }
         }
     }
-    func saveMemory(_ original: LifePlace, title: String, note: String, favorite: Bool, tripID: UUID?, people: [String], occurredAt: Date, knownPlaceID: UUID?) -> Bool {
+    func saveMemory(_ original: LifePlace, title: String, note: String, favorite: Bool, tripID: UUID?, people: [String], occurredAt: Date, knownPlaceID: UUID?, timeZone: String? = nil) -> Bool {
         commit(kind: "memory.edit", id: original.id) { state in
             guard let i = state.places.firstIndex(where: { $0.id == original.id }), state.places[i] == original else { throw LifeError.message("记忆已更新，本页草稿已保留。") }
             try state.audit(state.places[i], id: original.id, kind: "memory", revision: Int64(state.amendments.filter { $0.entityID == original.id && $0.kind == "memory" }.count + 1))
             state.places[i].title = title; state.places[i].note = note; state.places[i].favorite = favorite
             state.places[i].tripID = tripID; state.places[i].people = people
             state.places[i].occurredAt = occurredAt; state.places[i].knownPlaceID = knownPlaceID
+            state.places[i].timeZone = timeZone
         }
     }
     func deletePhoto(_ photo: LifePhoto) {
