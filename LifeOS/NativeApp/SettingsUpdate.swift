@@ -79,6 +79,7 @@ struct SettingsView: View {
                 NavigationLink("自动到访与定位状态") { VisitInboxView() }
             }
             Section("本版能力") {
+                NavigationLink("Obsidian文件交换与面板") { VaultSettingsView() }
                 Text("桌面小组件与灵动岛需要独立的苹果签名描述文件，现有签名条件尚不具备。这两项不作为本版已交付能力。") .font(.caption).foregroundStyle(.secondary)
             }
             if let configured = Bundle.main.object(forInfoDictionaryKey: "LifeOSWorkbenchURL") as? String,

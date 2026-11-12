@@ -120,6 +120,16 @@ struct LifeBackup: Codable {
     var media: [String: Data]
     var exportedAt: Date? = Date()
 }
+struct VaultOperation: Codable, Identifiable {
+    var id: UUID
+    var datasetID: UUID
+    var clientID: UUID
+    var payloadHash: String
+    var status: String
+    var receipt: Data
+    var finalEntityID: UUID?
+    var at = Date()
+}
 
 extension LifeSnapshot {
     func validateV2() throws {
@@ -136,6 +146,8 @@ extension LifeSnapshot {
               tasks.allSatisfy({ task in (task.priority == nil || (0...3).contains(task.priority!)) && (task.placeID == nil || knownPlaces.contains { p in p.id == task.placeID }) }),
               routes.allSatisfy({ route in route.tripID == nil || trips.contains { t in t.id == route.tripID } }) else { throw LifeError.invalidValue }
         guard Set(visits.map(\.observationKey)).count == visits.count,
+              Set(vaultOperations.map(\.id)).count == vaultOperations.count, vaultOperations.count <= 10000,
+              vaultOperations.allSatisfy({ ["accepted","rejected","expired","cancelled"].contains($0.status) && $0.payloadHash.count == 64 && $0.receipt.count <= 65536 }),
               Set(tombstones.map { $0.kind + ":" + $0.id.uuidString }).count == tombstones.count else { throw LifeError.invalidValue }
         let dates = tasks.flatMap { [$0.createdAt] + [$0.completedAt, $0.dueAt].compactMap { $0 } }
             + plans.flatMap { [$0.start, $0.end] } + sessions.flatMap { [$0.start] + [$0.end].compactMap { $0 } }

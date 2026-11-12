@@ -85,6 +85,8 @@ struct LifeReview: Codable, Identifiable, Equatable {
     var createdAt = Date()
     var revision: Int64?
     var people: [String]?
+    var canonical: Bool?
+    var sourceOperationID: UUID?
 }
 
 struct LifePlace: Codable, Identifiable, Equatable {
@@ -151,11 +153,12 @@ struct LifeSnapshot: Codable {
     var calendarLinks: [CalendarLink] = []
     var collectionWindows: [CollectionWindow] = []
     var disclosure: DisclosureSettings = .init()
+    var vaultOperations: [VaultOperation] = []
 
     init() {}
     enum CodingKeys: String, CodingKey {
         case schemaVersion, tasks, plans, sessions, goals, measurements, reviews, places, routes, pendingChanges
-        case keyResults, knownPlaces, visits, trips, photos, periodReviews, amendments, tombstones, calendarLinks, collectionWindows, disclosure
+        case keyResults, knownPlaces, visits, trips, photos, periodReviews, amendments, tombstones, calendarLinks, collectionWindows, disclosure, vaultOperations
     }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -181,10 +184,15 @@ struct LifeSnapshot: Codable {
         calendarLinks = try c.decodeIfPresent([CalendarLink].self, forKey: .calendarLinks) ?? []
         collectionWindows = try c.decodeIfPresent([CollectionWindow].self, forKey: .collectionWindows) ?? []
         disclosure = try c.decodeIfPresent(DisclosureSettings.self, forKey: .disclosure) ?? .init()
+        vaultOperations = try c.decodeIfPresent([VaultOperation].self, forKey: .vaultOperations) ?? []
         if version == 1 {
             // Deterministic, identity-preserving migration of the original one-metric goal.
             keyResults = goals.map { LifeKeyResult(id: $0.id, objectiveID: $0.id, title: $0.title, baseline: 0, target: $0.target, unit: $0.unit) }
             for i in measurements.indices { measurements[i].keyResultID = measurements[i].goalID }
+            var days = Set<String>()
+            for index in reviews.indices.sorted(by: { reviews[$0].createdAt < reviews[$1].createdAt }) {
+                reviews[index].canonical = days.insert(reviews[index].day).inserted
+            }
         }
         schemaVersion = 2
     }
@@ -196,7 +204,7 @@ struct LifeSnapshot: Codable {
         guard groups.allSatisfy({ Set($0).count == $0.count }),
               sessions.filter({ $0.end == nil }).count <= 1,
               routes.filter({ $0.end == nil }).count <= 1,
-              Set(reviews.map { $0.timeZone + ":" + $0.day }).count == reviews.count else {
+              Set(reviews.filter { $0.canonical != false }.map(\.day)).count == reviews.filter({ $0.canonical != false }).count else {
             throw LifeError.message("数据一致性检查未通过，原数据已保留。")
         }
         for task in tasks {

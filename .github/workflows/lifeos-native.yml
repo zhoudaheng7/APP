@@ -11,7 +11,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   native-iphone:
-    runs-on: macos-26
+    runs-on: macos-26-intel
     timeout-minutes: 35
     defaults:
       run:
@@ -19,6 +19,8 @@ jobs:
         working-directory: LifeOS
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
       - name: Build and test native iPhone app
         run: bash tools/build-native.sh
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

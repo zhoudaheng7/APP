@@ -1,8 +1,8 @@
 #!/bin/bash
 set -euo pipefail
 export HOMEBREW_NO_AUTO_UPDATE=1
-if [ -d /Applications/Xcode_27.app/Contents/Developer ]; then
-  export DEVELOPER_DIR=/Applications/Xcode_27.app/Contents/Developer
+if [ -d /Applications/Xcode_26.6.app/Contents/Developer ]; then
+  export DEVELOPER_DIR=/Applications/Xcode_26.6.app/Contents/Developer
 fi
 mkdir -p dist
 xcodebuild -version | tee dist/toolchain.txt
@@ -38,11 +38,32 @@ xcrun simctl boot "$SIMULATOR_ID" 2>/dev/null || true
 xcrun simctl bootstatus "$SIMULATOR_ID" -b
 xcrun simctl status_bar "$SIMULATOR_ID" override --time '9:41' --batteryState charged --batteryLevel 100 || true
 xcrun simctl ui "$SIMULATOR_ID" appearance light
+BASELINE=5800cd924066c81d4096efbb50f5b0fd7141fdc9
+mkdir -p build/baseline
+git archive "$BASELINE" LifeOS | tar -x -C build/baseline
+(
+  cd build/baseline/LifeOS
+  python3 tools/make_native_icon.py
+  xcodegen generate --spec native-project.yml
+  xcodebuild test -project LifeOS.xcodeproj -scheme LifeOS -configuration Debug \
+    -destination "platform=iOS Simulator,id=$SIMULATOR_ID" -derivedDataPath ../derived \
+    -only-testing:LifeOSUITests/LifeOSUITests/testCreateTaskSurvivesRelaunch \
+    -parallel-testing-enabled NO -collect-test-diagnostics never \
+    CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
+) 2>&1 | tee dist/baseline-install.log
+xcrun simctl get_app_container "$SIMULATOR_ID" app.lifeos.personal data > dist/baseline-container.txt
 xcodebuild test -project LifeOS.xcodeproj -scheme LifeOS -configuration Debug \
   -destination "platform=iOS Simulator,id=$SIMULATOR_ID" -derivedDataPath build/simulator \
   -resultBundlePath dist/Native.xcresult -parallel-testing-enabled NO \
   -collect-test-diagnostics never CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
   2>&1 | tee dist/native-tests.log
+xcrun simctl get_app_container "$SIMULATOR_ID" app.lifeos.personal data > dist/upgraded-container.txt
+cmp dist/baseline-container.txt dist/upgraded-container.txt
+python3 - <<'PY'
+from pathlib import Path
+import json
+Path('dist/upgrade-check.json').write_text(json.dumps({'baseline_source':'5800cd924066c81d4096efbb50f5b0fd7141fdc9','new_install_over_baseline':True,'data_container_unchanged':True,'legacy_task_UI_gate':'passed by required XCTest','physical_iphone_verified':False},indent=2))
+PY
 xcrun xcresulttool export attachments --path dist/Native.xcresult --output-path dist/Screenshots || true
 xcrun simctl launch --terminate-running-process "$SIMULATOR_ID" app.lifeos.personal -ui-testing
 sleep 2

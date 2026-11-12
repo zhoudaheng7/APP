@@ -18,7 +18,11 @@ targets:
   LifeOS:
     type: application
     platform: iOS
-    sources: [NativeApp]
+    sources:
+      - path: NativeApp
+        excludes: [Resources]
+      - path: NativeApp/Resources
+        buildPhase: resources
     dependencies:
       - package: LifeOSCore
         product: LifeOSDomain
@@ -52,7 +56,11 @@ targets:
   LifeOSNativeTests:
     type: bundle.unit-test
     platform: iOS
-    sources: [NativeTests]
+    sources:
+      - path: NativeTests
+        excludes: [Fixtures]
+      - path: NativeTests/Fixtures
+        buildPhase: resources
     dependencies:
       - target: LifeOS
     settings:

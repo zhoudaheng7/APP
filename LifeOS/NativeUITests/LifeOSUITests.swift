@@ -2,6 +2,12 @@ import XCTest
 
 final class LifeOSUITests: XCTestCase {
     override func setUpWithError() throws { continueAfterFailure = false }
+    func testBaselineUpgradePreservesV1Task() throws {
+        let app=XCUIApplication();app.launchArguments=["-ui-testing"];app.launch()
+        let legacy=app.staticTexts.matching(NSPredicate(format:"label BEGINSWITH %@","手机任务-")).firstMatch
+        XCTAssertTrue(legacy.waitForExistence(timeout:15),"The baseline app's task must survive installing this new build")
+        let title=legacy.label;app.terminate();app.launch();XCTAssertTrue(app.staticTexts[title].waitForExistence(timeout:10))
+    }
     func testNativeTabsAndScreenshots() {
         let app = XCUIApplication(); app.launchArguments = ["-ui-testing"]; app.launch()
         for name in ["今天", "地图", "方向", "计划", "记忆"] {

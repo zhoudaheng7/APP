@@ -27,6 +27,11 @@ extension LifeStore {
         candidate.applyDeletionHistory()
         // Never restore a previous external publication cursor into a new folder/session.
         candidate.disclosure = data.disclosure
+        candidate.vaultOperations = data.vaultOperations
+        for task in data.tasks where !candidate.tasks.contains(where: { $0.id == task.id }) { candidate.tombstone(task.id, kind: "task") }
+        for plan in data.plans where !candidate.plans.contains(where: { $0.id == plan.id }) { candidate.tombstone(plan.id, kind: plan.isCommitment ? "commitment":"plan") }
+        for session in data.sessions where !candidate.sessions.contains(where: { $0.id == session.id }) { candidate.tombstone(session.id, kind: "actual") }
+        for review in data.reviews where !candidate.reviews.contains(where: { $0.id == review.id }) { candidate.tombstone(review.id, kind: "review") }
         for i in candidate.collectionWindows.indices where candidate.collectionWindows[i].end == nil { candidate.collectionWindows[i].end = Date() }
         let kept = Set(candidate.photos.map(\.id))
         var media: [MediaMutation] = data.photos.filter { !kept.contains($0.id) }.map { .remove($0.id) }
@@ -66,7 +71,7 @@ extension LifeSnapshot {
     mutating func applyDeletionHistory() {
         func deleted(_ kind: String) -> Set<UUID> { Set(tombstones.filter { $0.kind == kind }.map(\.id)) }
         let taskIDs = deleted("task"), actualIDs = deleted("actual"), memoryIDs = deleted("memory"), photoIDs = deleted("photo")
-        let routeIDs = deleted("route"), visitIDs = deleted("visit"), tripIDs = deleted("trip"), knownIDs = deleted("known-place"), planIDs = deleted("plan"), reviewIDs = deleted("review")
+        let routeIDs = deleted("route"), visitIDs = deleted("visit"), tripIDs = deleted("trip"), knownIDs = deleted("known-place"), planIDs = deleted("plan").union(deleted("commitment")), reviewIDs = deleted("review")
         tasks.removeAll { taskIDs.contains($0.id) }; sessions.removeAll { actualIDs.contains($0.id) }
         places.removeAll { memoryIDs.contains($0.id) }; photos.removeAll { photoIDs.contains($0.id) || $0.memoryID.map { memoryIDs.contains($0) } == true }
         routes.removeAll { routeIDs.contains($0.id) }; visits.removeAll { visitIDs.contains($0.id) }

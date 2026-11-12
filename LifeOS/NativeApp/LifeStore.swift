@@ -163,7 +163,7 @@ enum MediaMutation { case put(UUID, Data), remove(UUID) }
     func addMeasurement(_ measurement: LifeMeasurement) -> Bool { commit(kind: "measurement.create", id: measurement.id) { $0.measurements.append(measurement) } }
     func addReview(_ review: LifeReview) -> Bool {
         commit(kind: "review.create", id: review.id) { state in
-            guard !state.reviews.contains(where: { $0.day == review.day && $0.timeZone == review.timeZone }) else { throw LifeError.message("这一天已保存复盘。") }
+            guard !state.reviews.contains(where: { $0.day == review.day && $0.canonical != false }) else { throw LifeError.message("这一天已保存正式复盘，请从记忆页打开原记录修订。") }
             state.reviews.insert(review, at: 0)
         }
     }
