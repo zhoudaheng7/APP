@@ -36,7 +36,12 @@ import UIKit
             let page = try XCTUnwrap(document.page(at:index)); let image = page.thumbnail(of:CGSize(width:900,height:1274),for:.mediaBox)
             let item = XCTAttachment(image:image); item.name = "Dayisle-story-page-\(index + 1)"; item.lifetime = .keepAlways; add(item)
         }
-        let reopened = LifeStore(directory:root); XCTAssertEqual(reopened.data.stories.first,story)
+        let reopened = LifeStore(directory:root)
+        var persisted = try XCTUnwrap(reopened.data.stories.first)
+        // JSON milliseconds use a different floating-point epoch; compare the
+        // declared millisecond precision, then every remaining field exactly.
+        XCTAssertEqual(persisted.createdAt.timeIntervalSince1970,story.createdAt.timeIntervalSince1970,accuracy:0.001)
+        persisted.createdAt = story.createdAt; XCTAssertEqual(persisted,story)
         let oldBackup = LifeBackup(snapshot:reopened.data,media:[:]); reopened.deleteStory(story)
         XCTAssertTrue(reopened.restoreBackup(oldBackup)); XCTAssertTrue(reopened.data.stories.isEmpty)
         try reopened.close(); try store.close()

@@ -12,7 +12,10 @@ final class LifeOSUITests: XCTestCase {
         let app = XCUIApplication(); app.launchArguments = ["-ui-testing"]; app.launch()
         for name in ["今天", "地图", "方向", "计划", "记忆"] {
             let tab = app.tabBars.buttons[name]; XCTAssertTrue(tab.waitForExistence(timeout: 15)); tab.tap()
-            let attachment = XCTAttachment(screenshot: app.screenshot()); attachment.name = "LifeOS-" + name; attachment.lifetime = .keepAlways; add(attachment)
+            XCTAssertTrue(app.navigationBars[name].waitForExistence(timeout:15),"The selected root must be displayed")
+            // Capture the device screen without asking XCTest to snapshot the
+            // complete application's accessibility hierarchy a second time.
+            let attachment = XCTAttachment(screenshot:XCUIScreen.main.screenshot()); attachment.name = "LifeOS-" + name; attachment.lifetime = .keepAlways; add(attachment)
         }
     }
     func testCreateTaskSurvivesRelaunch() {
