@@ -3,7 +3,7 @@ import MapKit
 import CoreLocation
 import Observation
 
-@MainActor @Observable final class LifeLocation: NSObject, CLLocationManagerDelegate {
+@MainActor @Observable final class LifeLocation: NSObject, @preconcurrency CLLocationManagerDelegate {
     private let manager = CLLocationManager()
     weak var store: LifeStore?
     private(set) var coordinate: CLLocationCoordinate2D?

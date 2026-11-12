@@ -26,8 +26,8 @@ struct VaultBinding: Codable {
     private var projectionCandidate: [String:Any]?
     private(set) var incoming: [IncomingReview] = []
     private let store: LifeStore
-    init(store: LifeStore = .shared) {
-        self.store = store
+    init(store: LifeStore? = nil) {
+        self.store = store ?? .shared
         do {
             let url = try Self.bindingURL()
             if FileManager.default.fileExists(atPath: url.path) { binding = try JSONDecoder().decode(VaultBinding.self, from: Data(contentsOf: url)) }

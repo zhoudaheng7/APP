@@ -149,9 +149,11 @@ extension LifeSnapshot {
               Set(vaultOperations.map(\.id)).count == vaultOperations.count, vaultOperations.count <= 10000,
               vaultOperations.allSatisfy({ ["accepted","rejected","expired","cancelled"].contains($0.status) && $0.payloadHash.count == 64 && $0.receipt.count <= 65536 }),
               Set(tombstones.map { $0.kind + ":" + $0.id.uuidString }).count == tombstones.count else { throw LifeError.invalidValue }
-        let dates = tasks.flatMap { [$0.createdAt] + [$0.completedAt, $0.dueAt].compactMap { $0 } }
-            + plans.flatMap { [$0.start, $0.end] } + sessions.flatMap { [$0.start] + [$0.end].compactMap { $0 } }
-            + measurements.flatMap { [$0.recordedAt, $0.effectiveAt] }
+        var dates: [Date] = []
+        for task in tasks { dates.append(task.createdAt); if let completed = task.completedAt { dates.append(completed) }; if let due = task.dueAt { dates.append(due) } }
+        for plan in plans { dates.append(plan.start); dates.append(plan.end) }
+        for session in sessions { dates.append(session.start); if let end = session.end { dates.append(end) } }
+        for reading in measurements { dates.append(reading.recordedAt); dates.append(reading.effectiveAt) }
         guard dates.allSatisfy(finite), calendarLinks.allSatisfy({ link in plans.contains { $0.id == link.planID } }),
               collectionWindows.allSatisfy({ finite($0.start) && ($0.end == nil || $0.end! >= $0.start) }),
               routes.allSatisfy({ route in zip(route.points, route.points.dropFirst()).allSatisfy { pair in pair.0.at <= pair.1.at && pair.0.segment <= pair.1.segment } }) else { throw LifeError.invalidValue }

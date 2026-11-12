@@ -70,7 +70,7 @@ struct CalendarEventEditor: UIViewControllerRepresentable {
         return controller
     }
     func updateUIViewController(_ uiViewController: EKEventEditViewController, context: Context) {}
-    @MainActor final class Coordinator: NSObject, EKEventEditViewDelegate {
+    @MainActor final class Coordinator: NSObject, @preconcurrency EKEventEditViewDelegate {
         let events: EKEventStore; let life: LifeStore; let plan: LifePlan; let dismiss: () -> Void; let linkID: UUID?
         init(life: LifeStore, plan: LifePlan, events: EKEventStore, linkID: UUID?, dismiss: @escaping () -> Void) { self.life = life; self.plan = plan; self.events = events; self.linkID = linkID; self.dismiss = dismiss }
         func eventEditViewController(_ controller: EKEventEditViewController, didCompleteWith action: EKEventEditViewAction) {

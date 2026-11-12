@@ -103,7 +103,8 @@ enum MediaMutation { case put(UUID, Data), remove(UUID) }
             row = object; data = candidate; payloadFingerprint = Self.fingerprint(bytes)
             if !media.isEmpty { imageCache.removeAllObjects() }
             if kind.hasPrefix("plan.") || kind.hasPrefix("commitment.") || kind == "backup.restore" {
-                Task { await LifeNotifications.shared.reschedule(candidate.plans) }
+                let reminderPlans = candidate.plans
+                _Concurrency.Task { await LifeNotifications.shared.reschedule(reminderPlans) }
             }
             return true
         } catch {

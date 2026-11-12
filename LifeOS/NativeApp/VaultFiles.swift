@@ -35,8 +35,8 @@ enum VaultFiles {
     static func coordinated<T>(_ root: URL, write: Bool, _ body: (URL) throws -> T) throws -> T {
         var failure: NSError?, result: Result<T,Error>?
         let coordinator = NSFileCoordinator(filePresenter: nil)
-        if write { coordinator.coordinate(writingItemAt: root, options: .forMerging, error: &failure) { result = Result { try body($0) } } }
-        else { coordinator.coordinate(readingItemAt: root, options: .withoutChanges, error: &failure) { result = Result { try body($0) } } }
+        if write { coordinator.coordinate(writingItemAt: root, options: .forMerging, error: &failure) { coordinatedURL in result = Result { try body(coordinatedURL) } } }
+        else { coordinator.coordinate(readingItemAt: root, options: .withoutChanges, error: &failure) { coordinatedURL in result = Result { try body(coordinatedURL) } } }
         if let failure { throw failure }; guard let result else { throw LifeError.message("文件提供方没有完成本次协调。") }; return try result.get()
     }
     static func read(_ relative: String, root: URL, maximum: Int = budget) throws -> Data {

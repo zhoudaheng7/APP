@@ -55,7 +55,8 @@ extension VaultFiles {
             var hashes: [String:String] = [:]
             for name in files.keys.sorted(by: { $0 == "manifest.json" ? false : $1 == "manifest.json" ? true : $0 < $1 }) {
                 let url = try path(prefix + name, root: base, createParents: true); let content = files[name]!
-                if !FileManager.default.fileExists(atPath: url.path) || (try Data(contentsOf: url)) != content { try content.write(to: url, options: [.atomic,.completeFileProtectionUntilFirstUserAuthentication]) }; hashes[name] = hashBytes(content)
+                let old = FileManager.default.fileExists(atPath: url.path) ? try Data(contentsOf: url) : nil
+                if old != content { try content.write(to: url, options: [.atomic,.completeFileProtectionUntilFirstUserAuthentication]) }; hashes[name] = hashBytes(content)
             }
             // Enabling community plugins remains an explicit Obsidian user action.
             return hashes
