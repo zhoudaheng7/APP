@@ -119,8 +119,12 @@ required.append('testShareFileStaysUntilSystemCompletionAndChangedExportIsNeverD
 required.append('testTypedReviewShortcutAppendSurvivesPendingDebounceAndPreservesAllEdits')
 required.append('testNewReviewShortcutAppendCarriesLegacyDraftWithoutSavingFact')
 assert all(re.search(r"Test Case .* "+re.escape(name)+r"\]' passed",log) for name in required), 'A required release test did not actually pass'
-assert re.search(r'Executed (?:[5-9][0-9]|[1-9][0-9]{2,}) tests, with 0 failures',log), 'Native/UI test count is unexpectedly small'
+passed_cases = set(re.findall(r"Test Case '-\[(LifeOSNativeTests|LifeOSUITests)\.([A-Za-z_][A-Za-z0-9_]*) ([A-Za-z_][A-Za-z0-9_]*)\]' passed",log))
+native_count = sum(module == 'LifeOSNativeTests' for module,_,_ in passed_cases)
+ui_count = sum(module == 'LifeOSUITests' for module,_,_ in passed_cases)
+assert native_count >= 48 and ui_count >= 5, 'Native/UI passed-case counts are unexpectedly small'
+assert not re.search(r"Test Case .*' failed",log), 'A failed native/UI case remains'
 assert 'testCreateTaskSurvivesRelaunch' in Path('dist/baseline-install.log').read_text(), 'Old app installation gate missing'
-Path('dist/required-tests.json').write_text(json.dumps({'passed':required,'minimum_combined_test_count':50},indent=2))
+Path('dist/required-tests.json').write_text(json.dumps({'passed':required,'native_test_count':native_count,'ui_test_count':ui_count,'minimum_native_test_count':48,'minimum_ui_test_count':5},indent=2))
 Path('dist/release-gate.json').write_text(json.dumps({'mode':'full','software_checks':'passed','source_commit':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),'baseline_to_new_container_preserved':True,'domain_native_ui_tests_passed':True,'unsigned_sha256':package['sha256'],'version':package['version'],'build':package['build'],'physical_iphone_verified':False,'real_vault_provider_verified':False},indent=2))
 PY
