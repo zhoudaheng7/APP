@@ -3373,7 +3373,7 @@ var DayisleWire = (() => {
         if (input.mapping && index.length === 0 && !Object.hasOwn(notes, input.mapping.path)) throw Error("PROJECTION_MAPPING_MISSING");
         const path = derivedProjectionPath("Dayisle", "{date}.md", bound.bound.payload.dayKey, input.mapping ?? null, index);
         const original = Buffer.from(notes[path] ?? "", "base64");
-        const output = replaceBlock(original, bound.bound.payload, active.commitID, { ancestors: new Set(active.ancestry), allowCreate: true });
+        const output = replaceBlock(original, bound.bound.payload, active.commitID, { ancestors: new Set(active.ancestry), currentHead: active.commitID, expectedHead: input.head, allowCreate: true });
         value = { bytes: output.toString("base64"), path, originalHash: sha2562(original), blockID: bound.bound.payload.blockID, dayKey: bound.bound.payload.dayKey };
       } else if (operation === "parse-intent") {
         value = parseIntent(input.bytes, input.context);

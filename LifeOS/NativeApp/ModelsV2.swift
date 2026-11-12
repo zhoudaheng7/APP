@@ -155,9 +155,24 @@ extension LifeSnapshot {
         for plan in plans { dates.append(plan.start); dates.append(plan.end) }
         for session in sessions { dates.append(session.start); if let end = session.end { dates.append(end) } }
         for reading in measurements { dates.append(reading.recordedAt); dates.append(reading.effectiveAt) }
+        for route in routes { dates.append(route.start); if let end = route.end { dates.append(end) }; for point in route.points { dates.append(point.at) } }
+        for visit in visits { dates.append(visit.receivedAt); if let arrival = visit.arrival { dates.append(arrival) }; if let departure = visit.departure { dates.append(departure) } }
+        for place in places { dates.append(place.occurredAt) }
+        for goal in goals { dates.append(goal.due); if let start = goal.cycleStart { dates.append(start) } }
+        for photo in photos { dates.append(photo.capturedAt) }
+        for review in reviews { dates.append(review.createdAt) }
+        for review in periodReviews { dates.append(review.start); dates.append(review.end); dates.append(review.createdAt) }
+        var revisions: [Int64] = tasks.map(\.revision)
+        revisions.append(contentsOf: plans.map(\.revision)); revisions.append(contentsOf: sessions.map(\.revision)); revisions.append(contentsOf: keyResults.map(\.revision))
+        revisions.append(contentsOf: goals.map { $0.revision ?? 1 }); revisions.append(contentsOf: reviews.map { $0.revision ?? 1 })
+        revisions.append(contentsOf: knownPlaces.map(\.revision)); revisions.append(contentsOf: visits.map(\.revision)); revisions.append(contentsOf: trips.map(\.revision)); revisions.append(contentsOf: periodReviews.map(\.revision))
+        guard revisions.allSatisfy({ (1...9_007_199_254_740_991).contains($0) }), (0...9_007_199_254_740_991).contains(disclosure.lastSequence),
+              routes.allSatisfy({ $0.points.allSatisfy { point in (0...9_007_199_254_740_991).contains(point.segment) && (point.accuracy == nil || (point.accuracy!.isFinite && point.accuracy! >= 0)) } }) else { throw LifeError.message("记录计数或采样信息无效，原数据已保留。") }
         guard dates.allSatisfy(finite), calendarLinks.allSatisfy({ link in plans.contains { $0.id == link.planID } }),
               collectionWindows.allSatisfy({ finite($0.start) && ($0.end == nil || $0.end! >= $0.start) }),
               routes.allSatisfy({ route in zip(route.points, route.points.dropFirst()).allSatisfy { pair in pair.0.at <= pair.1.at && pair.0.segment <= pair.1.segment } }) else { throw LifeError.invalidValue }
+        let live: [String:Set<UUID>] = ["task":Set(tasks.map(\.id)),"plan":Set(plans.filter { !$0.isCommitment }.map(\.id)),"commitment":Set(plans.filter(\.isCommitment).map(\.id)),"actual":Set(sessions.map(\.id)),"review":Set(reviews.map(\.id)),"memory":Set(places.map(\.id)),"photo":Set(photos.map(\.id)),"visit":Set(visits.map(\.id)),"route":Set(routes.map(\.id)),"trip":Set(trips.map(\.id)),"known-place":Set(knownPlaces.map(\.id)),"goal":Set(goals.map(\.id)),"kr":Set(keyResults.map(\.id)),"measurement":Set(measurements.map(\.id)),"period-review":Set(periodReviews.map(\.id))]
+        guard tombstones.allSatisfy({ live[$0.kind]?.contains($0.id) == false }) else { throw LifeError.message("删除记录不能被旧编辑或回调复活，原数据保留。") }
     }
     func currentMeasurement(for keyResultID: UUID) -> LifeMeasurement? {
         measurements.filter { ($0.keyResultID ?? $0.goalID) == keyResultID && $0.rejectedAt == nil }.max {

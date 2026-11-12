@@ -65,12 +65,17 @@ enum MediaMutation { case put(UUID, Data), remove(UUID) }
         guard ready else { error = "本机数据尚未成功打开，暂时不能保存。"; return false }
         var candidate = data
         do {
+            let request = NSFetchRequest<NSManagedObject>(entityName: "LifeOSSnapshot"); request.fetchLimit = 2
+            request.predicate = NSPredicate(format: "key == %@", "current")
+            request.shouldRefreshRefetchedObjects = true; request.returnsObjectsAsFaults = false; request.includesPendingChanges = false
+            let rows = try container.viewContext.fetch(request)
+            guard rows.count <= 1 else { throw LifeError.message("发现多个当前快照，已停止写入。") }
+            row = rows.first
             if let row {
-                container.viewContext.refresh(row, mergeChanges: false)
                 if let bytes = row.value(forKey: "payload") as? Data, Self.fingerprint(bytes) != payloadFingerprint {
                     let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .millisecondsSince1970
                     let fresh = try decoder.decode(LifeSnapshot.self, from: bytes); try fresh.validate()
-                    data = fresh; payloadFingerprint = Self.fingerprint(bytes)
+                    data = fresh; payloadFingerprint = Self.fingerprint(bytes); imageCache.removeAllObjects()
                     throw LifeError.message("另一项操作更新了数据。你的编辑内容已保留，请重试保存。")
                 }
             }
@@ -137,6 +142,7 @@ enum MediaMutation { case put(UUID, Data), remove(UUID) }
     }
     func stopSession(at end: Date = Date()) {
         guard let session = runningSession else { return }
+        guard session.restorePending != true else { error = "请先核对备份中未结束记录的时间，不能直接把恢复时刻当作结束。"; return }
         _ = commit(kind: "actual.stop", id: session.id) { state in
             guard let i = state.sessions.firstIndex(where: { $0.id == session.id }) else { throw LifeError.invalidReference }
             let stop = max(end, session.start.addingTimeInterval(0.001))
@@ -219,5 +225,11 @@ enum MediaMutation { case put(UUID, Data), remove(UUID) }
         guard let bytes = try? container.viewContext.fetch(request).first?.value(forKey: "payload") as? Data else { return nil }
         imageCache.totalCostLimit = 12 * 1024 * 1024; imageCache.setObject(bytes as NSData, forKey: id as NSUUID, cost: bytes.count)
         return bytes
+    }
+    /// Explicitly release an owned stack before removing test/temporary files.
+    /// Normal application windows share the process-lifetime singleton instead.
+    func close() throws {
+        ready = false; row = nil; imageCache.removeAllObjects(); container.viewContext.reset()
+        for store in container.persistentStoreCoordinator.persistentStores { try container.persistentStoreCoordinator.remove(store) }
     }
 }

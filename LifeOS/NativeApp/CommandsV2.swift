@@ -47,14 +47,14 @@ extension LifeStore {
     func editSession(_ original: LifeSession, title: String, start: Date, end: Date, note: String, confirmed: Bool) -> Bool {
         commit(kind: "actual.correct", id: original.id) { state in
             guard let i = state.sessions.firstIndex(where: { $0.id == original.id }), state.sessions[i].revision == original.revision,
-                  original.end != nil else { throw LifeError.message("请先结束计时，再修正这段记录。") }
+                  original.end != nil || original.restorePending == true else { throw LifeError.message("请先结束计时，再修正这段记录。") }
             try state.audit(state.sessions[i], id: original.id, kind: "actual", revision: original.revision)
             state.sessions[i].title = title.trimmingCharacters(in: .whitespacesAndNewlines); state.sessions[i].start = start
-            state.sessions[i].end = end; state.sessions[i].note = note; state.sessions[i].confirmed = confirmed; state.sessions[i].revision += 1
+            state.sessions[i].end = end; state.sessions[i].note = note; state.sessions[i].confirmed = confirmed; state.sessions[i].restorePending = false; state.sessions[i].revision += 1
         }
     }
     func deleteSession(_ session: LifeSession) {
-        guard session.end != nil else { error = "请先结束正在计时的记录。"; return }
+        guard session.end != nil || session.restorePending == true else { error = "请先结束正在计时的记录。"; return }
         _ = commit(kind: "actual.delete", id: session.id) { $0.sessions.removeAll { $0.id == session.id }; $0.tombstone(session.id, kind: "actual") }
     }
     func reviseReview(_ original: LifeReview, text: String, mood: Int?, people: [String]) -> Bool {

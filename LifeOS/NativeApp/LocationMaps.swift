@@ -96,6 +96,7 @@ import Observation
         updateVisits()
     }
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        guard wantsFix || wantsRoute else { return }
         guard let fix = locations.last, fix.horizontalAccuracy >= 0, fix.horizontalAccuracy <= 100,
               abs(fix.timestamp.timeIntervalSinceNow) < 30 else { return }
         coordinate = fix.coordinate
@@ -114,8 +115,10 @@ import Observation
         store.appendRoutePoint(RoutePoint(latitude: fix.coordinate.latitude, longitude: fix.coordinate.longitude, at: fix.timestamp, segment: routeSegment, accuracy: fix.horizontalAccuracy))
     }
     func locationManager(_ manager: CLLocationManager, didVisit visit: CLVisit) {
-        guard visitOptIn, manager.authorizationStatus == .authorizedAlways else { return }
-        _ = store?.receiveVisit(VisitObservation(latitude: visit.coordinate.latitude, longitude: visit.coordinate.longitude, accuracy: visit.horizontalAccuracy, arrival: visit.arrivalDate == .distantPast ? nil : visit.arrivalDate, departure: visit.departureDate == .distantFuture ? nil : visit.departureDate))
+        let observation = VisitObservation(latitude: visit.coordinate.latitude, longitude: visit.coordinate.longitude, accuracy: visit.horizontalAccuracy, arrival: visit.arrivalDate == .distantPast ? nil : visit.arrivalDate, departure: visit.departureDate == .distantFuture ? nil : visit.departureDate)
+        let known = store?.data.visits.contains { $0.observationKey == observation.key } == true
+        guard (visitOptIn && manager.authorizationStatus == .authorizedAlways) || known else { return }
+        _ = store?.receiveVisit(observation)
     }
     func locationManagerDidPauseLocationUpdates(_ manager: CLLocationManager) { store?.routeGap("系统暂停了位置采样"); routeSegment += 1; lastRecorded = nil }
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {

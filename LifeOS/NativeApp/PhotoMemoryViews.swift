@@ -27,6 +27,7 @@ enum PhotoProcessor {
         guard let source = CGImageSourceCreateWithData(bytes as CFData, nil), CGImageSourceGetType(source) as String? == UTType.jpeg.identifier,
               let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
               props[kCGImagePropertyGPSDictionary] == nil, props[kCGImagePropertyExifDictionary] == nil,
+              props[kCGImagePropertyExifAuxDictionary] == nil, props[kCGImagePropertyIPTCDictionary] == nil, props[kCGImagePropertyTIFFDictionary] == nil,
               props[kCGImagePropertyPixelWidth] as? Int == width, props[kCGImagePropertyPixelHeight] as? Int == height else { return false }
         return true
     }
@@ -61,6 +62,9 @@ struct AddPhotoView: View {
     @State private var date = Date()
     @State private var loading = false
     @State private var issue: String?
+    @State private var selectedMemoryID: UUID?
+    @State private var selectedTripID: UUID?
+    @State private var initialized = false
     var body: some View {
         NavigationStack { Form {
             Section {
@@ -70,9 +74,15 @@ struct AddPhotoView: View {
                 if let issue { Text(issue).font(.caption).foregroundStyle(.secondary) }
             }
             Section { TextField("照片说明", text: $caption, axis: .vertical); DatePicker("这张记忆的日期", selection: $date) }
+            Section("由你确认关联") {
+                Picker("地点记忆", selection: $selectedMemoryID) { Text("不关联地点").tag(UUID?.none); ForEach(store.data.places) { Text($0.title).tag(Optional($0.id)) } }
+                Picker("行程", selection: $selectedTripID) { Text("独立照片记忆").tag(UUID?.none); ForEach(store.data.trips) { Text($0.title).tag(Optional($0.id)) } }
+                Text("关联只组织记忆，不自动确认到访，也不读取照片里的定位。") .font(.caption).foregroundStyle(.secondary)
+            }
             Section { Text("只保存你选中的这一张的压缩副本，不扫描相册、不读取照片位置或拍摄时间，不上传。全部照片副本总计上限64MB。") .font(.caption).foregroundStyle(.secondary) }
         }.navigationTitle("一张生活记忆").navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() } }; ToolbarItem(placement: .confirmationAction) { Button("保存") { if let prepared { let photo = LifePhoto(caption: caption, capturedAt: date, memoryID: memoryID, tripID: tripID, sha256: LifeStore.fingerprint(prepared.data), width: prepared.width, height: prepared.height, bytes: prepared.data.count); if store.addPhoto(photo, bytes: prepared.data) { dismiss() } } }.disabled(prepared == nil || loading) } }
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() } }; ToolbarItem(placement: .confirmationAction) { Button("保存") { if let prepared { let photo = LifePhoto(caption: caption, capturedAt: date, memoryID: selectedMemoryID, tripID: selectedTripID, sha256: LifeStore.fingerprint(prepared.data), width: prepared.width, height: prepared.height, bytes: prepared.data.count); if store.addPhoto(photo, bytes: prepared.data) { dismiss() } } }.disabled(prepared == nil || loading) } }
+            .onAppear { if !initialized { initialized = true; selectedMemoryID = memoryID; selectedTripID = tripID } }
             .task(id: selection) {
                 prepared = nil; issue = nil
                 guard let selection else { return }; loading = true; defer { loading = false }

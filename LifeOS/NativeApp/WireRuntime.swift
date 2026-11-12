@@ -57,7 +57,7 @@ extension LifeSnapshot {
         return tombstones.compactMap { stamp in guard let kind = kinds[stamp.kind] else { return nil }; return ["entityType":kind,"entityID":stamp.id.wire] }
     }
     func dailyProjectionBody(day: Date) -> String {
-        func plain(_ text: String) -> String { text.replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "<", with: "&lt;").replacingOccurrences(of: ">", with: "&gt;").replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n") }
+        func plain(_ text: String) -> String { markdownLiteral(text) }
         var lines = ["## 朝屿 · " + Self.dayKey(day), "", "### 想完成的事"]
         lines += tasks.filter(\.isOpen).map { "- " + plain($0.title).replacingOccurrences(of: "\n", with: " ") }
         lines += ["", "### 计划与承诺"]
@@ -67,4 +67,14 @@ extension LifeSnapshot {
         if let review = reviews.first(where: { $0.day == Self.dayKey(day) && $0.canonical != false }) { lines += ["", "### 日复盘"] + plain(review.reflection).split(separator: "\n", omittingEmptySubsequences: false).map { "> " + $0 } }
         return lines.joined(separator: "\n") + "\n"
     }
+}
+
+func markdownLiteral(_ input: String) -> String {
+    let text = input.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
+    var output = ""
+    for character in text {
+        if "\\`*_{}[]()#+-!|".contains(character) { output.append("\\") }
+        switch character { case "&": output += "&amp;"; case "<": output += "&lt;"; case ">": output += "&gt;"; default: output.append(character) }
+    }
+    return output
 }

@@ -58,11 +58,7 @@ struct CaptureReviewDraftIntent: AppIntent {
     }
 }
 
-struct LifeShortcuts: AppShortcutsProvider {
-    static var appShortcuts: [AppShortcut] {
-        AppShortcut(intent: CaptureTaskIntent(), phrases: ["在\(.applicationName)记下任务"], shortTitle: "记任务", systemImageName: "checkmark.circle")
-        AppShortcut(intent: StartFocusIntent(), phrases: ["在\(.applicationName)开始投入"], shortTitle: "开始投入", systemImageName: "play.circle")
-        AppShortcut(intent: EndFocusIntent(), phrases: ["在\(.applicationName)结束投入"], shortTitle: "结束投入", systemImageName: "stop.circle")
-        AppShortcut(intent: CaptureReviewDraftIntent(), phrases: ["在\(.applicationName)记下复盘"], shortTitle: "复盘草稿", systemImageName: "square.and.pencil")
-    }
-}
+// These four discoverable actions are available in the Shortcuts action library.
+// Automatic Siri phrases require NLU trained for the final signed bundle identity;
+// the cloud product intentionally uses a generic identity, so it must not ship
+// a stale generic-bundle NLU model after local signing.

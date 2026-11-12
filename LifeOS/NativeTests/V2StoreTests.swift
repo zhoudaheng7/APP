@@ -1,6 +1,7 @@
 import XCTest
 import CoreData
 import UIKit
+import ImageIO
 @testable import LifeOS
 
 @MainActor final class V2StoreTests: XCTestCase {
@@ -16,6 +17,7 @@ import UIKit
             let legacy = LifeStore(directory: parent)
             let row = NSEntityDescription.insertNewObject(forEntityName: "LifeOSSnapshot", into: legacy.container.viewContext)
             row.setValue("current", forKey: "key"); row.setValue(bytes, forKey: "payload"); try legacy.container.viewContext.save()
+            try legacy.close()
         }
         let upgraded = LifeStore(directory: parent); XCTAssertTrue(upgraded.ready, upgraded.error ?? "")
         XCTAssertEqual(upgraded.data.schemaVersion,2); XCTAssertEqual(upgraded.data.tasks[0].revision,3)
@@ -24,6 +26,7 @@ import UIKit
         XCTAssertEqual(try Data(contentsOf: parent.appendingPathComponent("before-v2-migration.json")),bytes)
         XCTAssertTrue(upgraded.addTask(title:"示例：升级后新任务",note:"",goalID:nil))
         let reopened = LifeStore(directory:parent); XCTAssertTrue(reopened.ready); XCTAssertEqual(reopened.data.tasks.count,2); XCTAssertEqual(reopened.data.reviews[0].reflection,"示例：旧版日复盘原文")
+        try reopened.close(); try upgraded.close()
     }
     func testCurrentOutcomeUsesObservedTimeAndWeightsWithoutSumming() throws {
         let store=LifeStore(inMemory:true),goal=LifeGoal(title:"示例方向",intention:"",target:10,unit:"本",due:Date())
@@ -52,7 +55,7 @@ import UIKit
         observation.departure=start.addingTimeInterval(30);observation.receivedAt=start.addingTimeInterval(40)
         XCTAssertTrue(store.receiveVisit(observation));XCTAssertEqual(store.data.visits.count,1);XCTAssertEqual(store.data.visits[0].id,id)
         let candidate=store.data.visits[0];XCTAssertTrue(store.reviseVisit(candidate,placeID:nil,arrival:candidate.arrival,departure:candidate.departure,note:"本人核对",state:"confirmed"))
-        observation.departure=start.addingTimeInterval(60);XCTAssertTrue(store.receiveVisit(observation));XCTAssertEqual(store.data.visits[0].departure,start.addingTimeInterval(30))
+        observation.departure=start.addingTimeInterval(60);observation.receivedAt=start.addingTimeInterval(70);XCTAssertTrue(store.receiveVisit(observation));XCTAssertEqual(store.data.visits[0].departure,start.addingTimeInterval(30))
         store.deleteVisit(store.data.visits[0]);XCTAssertFalse(store.receiveVisit(observation));XCTAssertTrue(store.data.visits.isEmpty)
     }
     func testPausedCollectionRejectsNewLateFactsAndKeepsUnknownTimes() {
@@ -64,6 +67,24 @@ import UIKit
         let late=VisitObservation(latitude:31,longitude:121,accuracy:100,arrival:start.addingTimeInterval(1),departure:start.addingTimeInterval(20),receivedAt:start.addingTimeInterval(60))
         XCTAssertFalse(store.receiveVisit(late));XCTAssertEqual(store.data.visits.count,1)
     }
+    func testAlreadyKnownLateDepartureCanEnrichOnlyInsideApprovedWindow() {
+        let store=LifeStore(inMemory:true),start=Date(timeIntervalSince1970:1000)
+        XCTAssertTrue(store.setVisitCollection(true,at:start))
+        var observation=VisitObservation(latitude:30,longitude:120,accuracy:100,arrival:start.addingTimeInterval(5),departure:nil,receivedAt:start.addingTimeInterval(6))
+        XCTAssertTrue(store.receiveVisit(observation));XCTAssertTrue(store.setVisitCollection(false,at:start.addingTimeInterval(30)))
+        observation.departure=start.addingTimeInterval(20);observation.receivedAt=start.addingTimeInterval(40)
+        XCTAssertTrue(store.receiveVisit(observation));XCTAssertEqual(store.data.visits[0].departure,observation.departure)
+        observation.departure=start.addingTimeInterval(35);XCTAssertFalse(store.receiveVisit(observation));XCTAssertEqual(store.data.visits[0].departure,start.addingTimeInterval(20))
+    }
+    func testRestoringOpenTimerRequiresExplicitTimeResolution() throws {
+        let store=LifeStore(inMemory:true),start=Date().addingTimeInterval(-3600)
+        XCTAssertTrue(store.commit(kind:"fixture.synthetic",id:UUID()){ $0.sessions=[LifeSession(title:"示例：旧计时",start:start)] })
+        let backup=LifeBackup(snapshot:store.data,media:[:]);store.stopSession()
+        XCTAssertTrue(store.restoreBackup(backup));let pending=try XCTUnwrap(store.runningSession)
+        XCTAssertEqual(pending.restorePending,true);store.stopSession();XCTAssertNil(store.runningSession?.end)
+        XCTAssertTrue(store.editSession(pending,title:pending.title,start:start,end:start.addingTimeInterval(900),note:"本人确认的结束时间",confirmed:false))
+        XCTAssertNil(store.runningSession);XCTAssertFalse(store.data.sessions[0].confirmed);XCTAssertEqual(store.data.sessions[0].end,start.addingTimeInterval(900))
+    }
     func preparedPhoto() throws -> PreparedPhoto {
         let renderer=UIGraphicsImageRenderer(size:CGSize(width:30,height:20))
         let raw=renderer.jpegData(withCompressionQuality:0.8){ context in UIColor.systemTeal.setFill();context.cgContext.fill(CGRect(x:0,y:0,width:30,height:20)) }
@@ -71,11 +92,13 @@ import UIKit
     }
     func testPhotoSnapshotAndBlobAreAtomicAndReopenAsOneStore() throws {
         let parent=try temporaryDirectory(),store=LifeStore(directory:parent),image=try preparedPhoto()
+        if let source=CGImageSourceCreateWithData(image.data as CFData,nil), let props=CGImageSourceCopyPropertiesAtIndex(source,0,nil) { print("SYNTHETIC_IMAGE_PROPERTIES",props) }
         XCTAssertTrue(PhotoProcessor.isSanitizedJPEG(image.data,width:image.width,height:image.height))
         let photo=LifePhoto(caption:"示例照片",capturedAt:Date(),sha256:LifeStore.fingerprint(image.data),width:image.width,height:image.height,bytes:image.data.count)
         let before=store.data.pendingChanges.count
         XCTAssertFalse(store.addPhoto(photo,bytes:Data("wrong".utf8)));XCTAssertTrue(store.data.photos.isEmpty);XCTAssertEqual(store.data.pendingChanges.count,before)
         XCTAssertTrue(store.addPhoto(photo,bytes:image.data));let reopened=LifeStore(directory:parent)
+        defer { try? reopened.close(); try? store.close() }
         XCTAssertTrue(reopened.ready,reopened.error ?? "");XCTAssertEqual(reopened.photoData(photo.id),image.data)
         let backupURL=try XCTUnwrap(reopened.exportBackup());defer{try? FileManager.default.removeItem(at:backupURL)}
         let backup=try LifeStore.decodeBackup(Data(contentsOf:backupURL));XCTAssertEqual(backup.media[photo.id.uuidString],image.data)
@@ -98,9 +121,18 @@ import UIKit
     func testCompetingStoreNeverOverwritesAConcurrentCommit() throws {
         let parent=try temporaryDirectory(),first=LifeStore(directory:parent)
         XCTAssertTrue(first.addTask(title:"示例A",note:"",goalID:nil));let second=LifeStore(directory:parent)
+        defer { try? second.close(); try? first.close() }
         XCTAssertTrue(second.addTask(title:"示例B",note:"",goalID:nil));XCTAssertFalse(first.addTask(title:"示例C",note:"",goalID:nil))
         XCTAssertEqual(Set(first.data.tasks.map(\.title)),Set(["示例A","示例B"]))
         XCTAssertTrue(first.addTask(title:"示例C",note:"",goalID:nil));XCTAssertEqual(first.data.tasks.count,3)
+    }
+    func testTwoInitiallyEmptyWritersRecoverAfterConflict() throws {
+        let parent=try temporaryDirectory(),first=LifeStore(directory:parent),second=LifeStore(directory:parent)
+        defer { try? second.close(); try? first.close() }
+        XCTAssertTrue(first.addTask(title:"示例A",note:"",goalID:nil))
+        XCTAssertFalse(second.addTask(title:"示例B",note:"",goalID:nil))
+        XCTAssertEqual(second.data.tasks.first?.title,"示例A")
+        XCTAssertTrue(second.addTask(title:"示例B",note:"",goalID:nil));XCTAssertEqual(second.data.tasks.count,2)
     }
     func testCalendarSaveKeepsPrivatePlanAndMapsActualCommitmentIdempotently() throws {
         let store=LifeStore(inMemory:true),now=Date(),plan=LifePlan(title:"示例私人计划",start:now,end:now.addingTimeInterval(3600))

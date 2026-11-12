@@ -86,6 +86,7 @@ struct VaultBinding: Codable {
             }
             let now = Date(); let start = Calendar.current.date(byAdding: .day, value: -30, to: now)!, end = Calendar.current.date(byAdding: .day, value: 3, to: now)!
             let state = store.data
+            guard !state.sessions.contains(where: { $0.restorePending == true && $0.end == nil }) else { throw LifeError.message("先核对从备份恢复的未结束记录，再发布Obsidian同步，避免把未知时间作为连续计时。") }
             let seed: [String:Any] = ["datasetID":settings.datasetID.wire,"writerID":settings.writerID.wire,"bindingID":binding.id.wire,"today":LifeSnapshot.dayKey(now),"startDay":LifeSnapshot.dayKey(start),"endDay":LifeSnapshot.dayKey(end),"now":wireInstant(now),"projectionEnabled":binding.projectionEnabled,"projectionEpoch":binding.projectionEpoch,"body":state.dailyProjectionBody(day: now),"entities":state.wireEntities(),"deleted":state.wireTombstones(),"disk":["commits":disk.commits,"files":disk.files,"datasetID":settings.datasetID.wire]]
             let candidate = try engine.call("build", seed)
             guard let encoded = candidate["files"] as? [String:String], let commit = candidate["commit"] as? [String:Any], let commitID = commit["commitID"] as? String, let commitPath = candidate["commitPath"] as? String else { throw LifeError.invalidValue }
@@ -103,6 +104,7 @@ struct VaultBinding: Codable {
     }
     func setProjection(_ enabled: Bool) {
         guard !busy, var next = binding, next.projectionEnabled != enabled else { return }
+        guard next.projectionEpoch < 9_007_199_254_740_991 else { message = "发布配置计数达到上限，原配置保留。"; return }
         next.projectionEnabled = enabled; next.projectionEpoch += 1
         do { try persistBinding(next); projectionCandidate = nil; message = "笔记派生块设置已更改；重新发布同步代后才生效。" } catch { message = "设置未能保存，原授权不变。" }
     }

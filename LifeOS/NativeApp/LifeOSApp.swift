@@ -1,10 +1,15 @@
 import SwiftUI
 
 @main struct LifeOSApp: App {
-    @State private var store = LifeStore.shared
-    @State private var location = LifeLocation()
+    @State private var store: LifeStore
+    @State private var location: LifeLocation
     @AppStorage("lifeos.onboarded.v1") private var onboarded = false
     @Environment(\.scenePhase) private var scenePhase
+    init() {
+        let store = LifeStore.shared, location = LifeLocation()
+        location.attach(store)
+        _store = State(initialValue: store); _location = State(initialValue: location)
+    }
 
     var body: some Scene {
         WindowGroup {

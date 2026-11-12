@@ -12,7 +12,9 @@ concurrency:
 jobs:
   native-iphone:
     runs-on: macos-26-intel
-    timeout-minutes: 35
+    timeout-minutes: 45
+    env:
+      DAYISLE_TEST_MODE: unit
     defaults:
       run:
         shell: bash

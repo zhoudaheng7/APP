@@ -42,8 +42,13 @@ struct TodayView: View {
                 Section("正在投入") {
                     VStack(alignment: .leading, spacing: 14) {
                         Label(active.title, systemImage: "waveform.path").font(.headline)
-                        Text(active.start, style: .timer).font(.system(.largeTitle, design: .rounded).monospacedDigit()).accessibilityIdentifier("activeTimer")
-                        PrimaryAction(title: "结束这一段", symbol: "stop.fill") { store.stopSession() }
+                        if active.restorePending == true {
+                            Text("备份里的未结束记录，需要核对结束时间。") .foregroundStyle(.secondary)
+                            NavigationLink("核对恢复记录") { SessionEditor(sessionID: active.id) }
+                        } else {
+                            Text(active.start, style: .timer).font(.system(.largeTitle, design: .rounded).monospacedDigit()).accessibilityIdentifier("activeTimer")
+                            PrimaryAction(title: "结束这一段", symbol: "stop.fill") { store.stopSession() }
+                        }
                         Text("结束计时后核对实际投入，任务完成另行确认。")
                             .font(.caption).foregroundStyle(.secondary)
                     }.padding(.vertical, 8)
@@ -96,7 +101,7 @@ struct TodayView: View {
                 if sessions.isEmpty { Text("开始计时，留下真实投入。") .foregroundStyle(.secondary) }
                 ForEach(sessions) { session in
                     NavigationLink { SessionEditor(sessionID: session.id) } label: { VStack(alignment: .leading, spacing: 7) {
-                        HStack { Text(session.title).font(.headline); Spacer(); Text(minutesText(clippedSeconds(session.start, session.end ?? Date(), day: day, zone: TimeZone(identifier: session.timeZone) ?? .current))).font(.subheadline.monospacedDigit()) }
+                        HStack { Text(session.title).font(.headline); Spacer(); Text(session.restorePending == true && session.end == nil ? "结束时间未知" : minutesText(clippedSeconds(session.start, session.end ?? Date(), day: day, zone: TimeZone(identifier: session.timeZone) ?? .current))).font(.subheadline.monospacedDigit()) }
                         HStack {
                             Label(session.confirmed ? "已核对" : session.end == nil ? "计时中" : "待核对", systemImage: session.confirmed ? "checkmark.seal" : "clock")
                                 .font(.caption).foregroundStyle(session.confirmed ? Color.teal : Color.secondary)

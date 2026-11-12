@@ -26,6 +26,7 @@ extension LifeStore {
         for tombstone in data.tombstones where !candidate.tombstones.contains(where: { $0.id == tombstone.id && $0.kind == tombstone.kind }) { candidate.tombstones.append(tombstone) }
         candidate.applyDeletionHistory()
         // Never restore a previous external publication cursor into a new folder/session.
+        for i in candidate.sessions.indices where candidate.sessions[i].end == nil { candidate.sessions[i].restorePending = true }
         candidate.disclosure = data.disclosure
         candidate.vaultOperations = data.vaultOperations
         for task in data.tasks where !candidate.tasks.contains(where: { $0.id == task.id }) { candidate.tombstone(task.id, kind: "task") }

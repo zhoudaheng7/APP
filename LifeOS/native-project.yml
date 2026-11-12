@@ -4,6 +4,7 @@ options:
   deploymentTarget:
     iOS: '17.0'
   createIntermediateGroups: true
+  developmentLanguage: zh-Hans
 packages:
   LifeOSCore:
     path: .
@@ -37,6 +38,8 @@ targets:
       path: Generated/Info.plist
       properties:
         CFBundleDisplayName: 朝屿
+        CFBundleDevelopmentRegion: zh-Hans
+        CFBundleLocalizations: [zh-Hans]
         CFBundleShortVersionString: '$(MARKETING_VERSION)'
         CFBundleVersion: '$(CURRENT_PROJECT_VERSION)'
         LSRequiresIPhoneOS: true

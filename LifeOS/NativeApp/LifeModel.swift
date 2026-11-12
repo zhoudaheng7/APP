@@ -49,6 +49,7 @@ struct LifeSession: Codable, Identifiable, Equatable {
     var placeID: UUID?
     var tripID: UUID?
     var deletedAt: Date?
+    var restorePending: Bool?
 }
 
 struct LifeGoal: Codable, Identifiable, Equatable {

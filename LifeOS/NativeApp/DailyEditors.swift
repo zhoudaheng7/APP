@@ -114,11 +114,13 @@ struct SessionEditor: View {
     var body: some View {
         if let session {
             Form {
-                Section { TextField("实际活动", text: $title); DatePicker("开始", selection: $start); DatePicker("结束", selection: $end, in: start...); TextField("说明", text: $note, axis: .vertical).lineLimit(3...8); Toggle("我已核对这段投入", isOn: $confirmed) }
-                Section { Text("修改只影响这段实际记录，不修改任务完成、原计划或成果读数。原记录版本会保留。") .foregroundStyle(.secondary); if session.end == nil { Button("结束当前计时") { store.stopSession() } }; Button("删除这段实际记录", role: .destructive) { delete = true }.disabled(session.end == nil) }
+                Section { TextField("实际活动", text: $title); DatePicker("开始", selection: $start).disabled(session.end == nil && session.restorePending != true); DatePicker("结束", selection: $end, in: start...).disabled(session.end == nil && session.restorePending != true); TextField("说明", text: $note, axis: .vertical).lineLimit(3...8); Toggle("我已核对这段投入", isOn: $confirmed).disabled(session.end == nil && session.restorePending != true) }
+                if session.restorePending == true { Section("先核对恢复记录") { Text("备份没有保存结束时间。请填写你确认的结束时间；预填值只方便编辑，不代表实际发生。不需要保留时可以删除，系统不会把恢复时刻自动补成结束。") .font(.subheadline).foregroundStyle(.secondary) } }
+                Section { Text("修改只影响这段实际记录，不修改任务完成、原计划或成果读数。原记录版本会保留。") .foregroundStyle(.secondary); if session.end == nil && session.restorePending != true { Button("结束当前计时") { store.stopSession() } }; Button("删除这段实际记录", role: .destructive) { delete = true }.disabled(session.end == nil && session.restorePending != true) }
             }.navigationTitle("实际记录").navigationBarTitleDisplayMode(.inline)
-                .toolbar { Button("保存修正") { _ = store.editSession(session, title: title, start: start, end: end, note: note, confirmed: confirmed) }.disabled(session.end == nil || title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || end <= start || end > Date().addingTimeInterval(60)) }
+                .toolbar { Button("保存修正") { _ = store.editSession(session, title: title, start: start, end: end, note: note, confirmed: confirmed) }.disabled((session.end == nil && session.restorePending != true) || title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || end <= start || end > Date().addingTimeInterval(60)) }
                 .onAppear { if !initialized { initialized = true; title = session.title; note = session.note ?? ""; start = session.start; end = session.end ?? Date(); confirmed = session.confirmed } }
+                .onChange(of: session.end) { old, new in if old == nil, let new { end = new } }
                 .confirmationDialog("删除这段实际记录？", isPresented: $delete, titleVisibility: .visible) { Button("删除", role: .destructive) { store.deleteSession(session) }; Button("取消", role: .cancel) {} }
         } else { ContentUnavailableView("实际记录已删除", systemImage: "clock") }
     }
