@@ -91,18 +91,14 @@ git -C .. archive "$BASELINE" LifeOS | tar -x -C build/baseline
     CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
 ) 2>&1 | tee dist/baseline-install.log
 xcrun simctl get_app_container "$SIMULATOR_ID" app.lifeos.personal data > dist/baseline-container.txt
+python3 tools/verify-native-upgrade.py capture --container-file dist/baseline-container.txt --output dist/baseline-data-proof.json
 xcodebuild test-without-building -project LifeOS.xcodeproj -scheme LifeOS -configuration Debug \
   -destination "platform=iOS Simulator,id=$SIMULATOR_ID" -derivedDataPath build/simulator \
   -resultBundlePath dist/Native.xcresult -parallel-testing-enabled NO \
   -collect-test-diagnostics never CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
   2>&1 | tee dist/native-tests.log
 xcrun simctl get_app_container "$SIMULATOR_ID" app.lifeos.personal data > dist/upgraded-container.txt
-cmp dist/baseline-container.txt dist/upgraded-container.txt
-python3 - <<'PY'
-from pathlib import Path
-import json
-Path('dist/upgrade-check.json').write_text(json.dumps({'baseline_source':'5800cd924066c81d4096efbb50f5b0fd7141fdc9','new_install_over_baseline':True,'data_container_unchanged':True,'legacy_task_UI_gate':'passed by required XCTest','physical_iphone_verified':False},indent=2))
-PY
+python3 tools/verify-native-upgrade.py verify --before dist/baseline-data-proof.json --container-file dist/upgraded-container.txt --baseline-container-file dist/baseline-container.txt --output dist/upgrade-check.json
 xcrun simctl launch --terminate-running-process "$SIMULATOR_ID" app.lifeos.personal -ui-testing
 sleep 2
 xcrun simctl io "$SIMULATOR_ID" screenshot dist/LifeOS-light.png
@@ -111,7 +107,7 @@ sleep 1
 xcrun simctl io "$SIMULATOR_ID" screenshot dist/LifeOS-dark.png
 python3 - <<'PY'
 from pathlib import Path
-import json,subprocess,re
+import json,subprocess,re,hashlib
 package=json.loads(Path('dist/unsigned-check.json').read_text())
 log=Path('dist/native-tests.log').read_text()
 required=['testActualLegacySQLitePayloadMigratesAndReopensWithoutChangingIDs','testCompetingStoreNeverOverwritesAConcurrentCommit','testPhotoProcessingRemovesPrivateMetadataAndBackupRejectsItsReintroduction','testNativeJavaScriptCoreRunsFrozenMachineAndProjectionCorpus','testWithdrawCheckpointsAndRetiresOldPayloadsThenUpdatesRegisteredNote','testWithdrawLeavesHandEditedManagedBlockAsVisibleConflict','testStoryPDFPaginatesChineseAndReopensSavedSnapshotAfterSourceDeletion','testClosingComposerKeepsDraftUntilExplicitSave','testStoryConfirmationPersistsAndOpensActualPDF','testBaselineUpgradePreservesV1Task']
@@ -126,5 +122,5 @@ assert native_count >= 48 and ui_count >= 5, 'Native/UI passed-case counts are u
 assert not re.search(r"Test Case .*' failed",log), 'A failed native/UI case remains'
 assert 'testCreateTaskSurvivesRelaunch' in Path('dist/baseline-install.log').read_text(), 'Old app installation gate missing'
 Path('dist/required-tests.json').write_text(json.dumps({'passed':required,'native_test_count':native_count,'ui_test_count':ui_count,'minimum_native_test_count':48,'minimum_ui_test_count':5},indent=2))
-Path('dist/release-gate.json').write_text(json.dumps({'mode':'full','software_checks':'passed','source_commit':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),'baseline_to_new_container_preserved':True,'domain_native_ui_tests_passed':True,'unsigned_sha256':package['sha256'],'version':package['version'],'build':package['build'],'physical_iphone_verified':False,'real_vault_provider_verified':False},indent=2))
+Path('dist/release-gate.json').write_text(json.dumps({'mode':'full','software_checks':'passed','source_commit':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),'baseline_to_new_data_preserved':True,'upgrade_identity_method':'CoreData-storeUUID-and-baseline-records-v1','upgrade_check_sha256':hashlib.sha256(Path('dist/upgrade-check.json').read_bytes()).hexdigest(),'domain_native_ui_tests_passed':True,'unsigned_sha256':package['sha256'],'version':package['version'],'build':package['build'],'physical_iphone_verified':False,'real_vault_provider_verified':False},indent=2))
 PY
