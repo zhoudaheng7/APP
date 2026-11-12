@@ -55,7 +55,7 @@ struct TaskLibraryView: View {
     } }
     var body: some View {
         List { Picker("任务范围", selection: $filter) { Text("进行中").tag(0); Text("已完成").tag(1); Text("归档").tag(2) }.pickerStyle(.segmented)
-            ForEach(tasks) { task in NavigationLink { TaskDetailView(taskID: task.id) } label: { VStack(alignment: .leading) { Text(task.title); if let due = task.dueAt { Text(due.formatted(date: .abbreviated, time: .shortened)).font(.caption).foregroundStyle(.secondary) } } }
+            ForEach(tasks) { task in NavigationLink { TaskDetailView(taskID: task.id) } label: { VStack(alignment: .leading) { Text(task.title); if let due = task.dueAt { Text(due.formatted(date: .abbreviated, time: .shortened)).font(.caption).foregroundStyle(.secondary) } } } }
         }.navigationTitle("全部任务").searchable(text: $search, prompt: "搜索任务和说明")
     }
 }

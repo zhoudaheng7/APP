@@ -262,6 +262,5 @@ struct RouteDetailView: View {
                 .onAppear { if !initialized { initialized = true; title = route.title; note = route.note ?? ""; transport = route.transport ?? "未知"; tripID = route.tripID; position = Double(max(0, route.points.count - 1)) } }
                 .confirmationDialog("删除整段精确路线？", isPresented: $delete, titleVisibility: .visible) { Button("删除", role: .destructive) { store.deleteRoute(route) }; Button("取消", role: .cancel) {} } message: { Text("行程和其他文字记忆会保留，路线采样与其说明将删除。") }
         } else { ContentUnavailableView("路线已删除", systemImage: "map") }
-        }
     }
 }
