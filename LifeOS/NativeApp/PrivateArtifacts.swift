@@ -71,7 +71,17 @@ import Foundation
         guard bytes.count < 128 * 1024 * 1024 else { throw LifeError.invalidValue }
         let copy = root.appendingPathComponent("before-v2-migration.json"), receipt = root.appendingPathComponent("before-v2-migration-owner.json")
         let manager = FileManager.default, hash = LifeStore.fingerprint(bytes)
-        if manager.fileExists(atPath:receipt.path) { return }
+        if manager.fileExists(atPath:receipt.path) {
+            let info = try receipt.resourceValues(forKeys:[.fileSizeKey,.isSymbolicLinkKey])
+            guard info.isSymbolicLink != true,(info.fileSize ?? Int.max) < 2048 else { throw LifeError.invalidValue }
+            let record = try JSONDecoder().decode(Receipt.self,from:Data(contentsOf:receipt))
+            guard record.sha256 == hash,record.bytes == bytes.count else { throw LifeError.message("迁移保护凭据不属于当前旧数据，原件保留。") }
+            if manager.fileExists(atPath:copy.path) {
+                let info = try copy.resourceValues(forKeys:[.fileSizeKey,.isSymbolicLinkKey])
+                guard info.isSymbolicLink != true,info.fileSize == bytes.count,LifeStore.fingerprint(try Data(contentsOf:copy)) == hash else { throw LifeError.message("迁移保护副本已改变，未覆盖原件。") }
+            } else { try bytes.write(to:copy,options:[.atomic,.completeFileProtectionUntilFirstUserAuthentication]) }
+            return
+        }
         if manager.fileExists(atPath:copy.path) {
             let values = try copy.resourceValues(forKeys:[.isSymbolicLinkKey,.fileSizeKey])
             guard values.isSymbolicLink != true,values.fileSize == bytes.count,LifeStore.fingerprint(try Data(contentsOf:copy)) == hash else { throw LifeError.message("已有迁移保护文件与旧数据不同，原件保留并停止迁移。") }

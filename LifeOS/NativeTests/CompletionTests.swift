@@ -45,6 +45,10 @@ import UIKit
         let root = try directory(),bytes = Data("synthetic legacy snapshot".utf8),now = Date()
         try MigrationProtection.preserve(bytes,root:root,now:now)
         let copy = root.appendingPathComponent("before-v2-migration.json")
+        let receipt = root.appendingPathComponent("before-v2-migration-owner.json"),originalReceipt = try Data(contentsOf:receipt)
+        try FileManager.default.removeItem(at:copy)
+        try MigrationProtection.preserve(bytes,root:root,now:now.addingTimeInterval(86400))
+        XCTAssertEqual(try Data(contentsOf:copy),bytes); XCTAssertEqual(try Data(contentsOf:receipt),originalReceipt)
         try MigrationProtection.sweep(root:root,now:now.addingTimeInterval(6 * 86400)); XCTAssertTrue(FileManager.default.fileExists(atPath:copy.path))
         try Data("changed by user".utf8).write(to:copy)
         XCTAssertThrowsError(try MigrationProtection.sweep(root:root,now:now.addingTimeInterval(8 * 86400)))
@@ -90,5 +94,17 @@ import UIKit
         XCTAssertTrue(store.editPhoto(photo,edited:edited)); XCTAssertFalse(store.editPhoto(photo,edited:edited)); XCTAssertEqual(store.photoData(photo.id),prepared.data)
         let draft = PhotoEditorDraft(jpeg:prepared.data,width:prepared.width,height:prepared.height,caption:"未保存说明",date:Date(),memoryID:nil,tripID:nil,timeZone:"Asia/Shanghai")
         let decoded = try JSONDecoder().decode(PhotoEditorDraft.self,from:JSONEncoder().encode(draft)); XCTAssertEqual(decoded.jpeg,prepared.data); XCTAssertEqual(decoded.caption,"未保存说明")
+    }
+    func testShareFileStaysUntilSystemCompletionAndChangedExportIsNeverDeleted() async throws {
+        let bytes = Data("synthetic share lifecycle".utf8),url = try PrivateArtifacts.export(bytes,name:"Dayisle-readable.md")
+        let controller = PrivateShareSheet.controller(for:url)
+        XCTAssertTrue(FileManager.default.fileExists(atPath:url.path))
+        let callback = try XCTUnwrap(controller.completionWithItemsHandler); callback(nil,true,nil,nil)
+        for _ in 0..<100 { if !FileManager.default.fileExists(atPath:url.path) { break }; await Task.yield() }
+        XCTAssertFalse(FileManager.default.fileExists(atPath:url.path))
+        let changed = try PrivateArtifacts.export(bytes,name:"Dayisle-readable.md")
+        try Data("edited by user".utf8).write(to:changed)
+        XCTAssertThrowsError(try PrivateArtifacts.finishExport(changed)); XCTAssertEqual(try Data(contentsOf:changed),Data("edited by user".utf8))
+        try bytes.write(to:changed); try PrivateArtifacts.finishExport(changed)
     }
 }

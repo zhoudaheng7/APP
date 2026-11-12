@@ -116,8 +116,8 @@ struct SettingsView: View {
     }
     func share(_ url: URL?) { if let url { exportURL = url; exportFile = PrivateExport(url: url) } }
     func cleanupExport() {
-        guard let url = exportURL else { return }
-        do { try PrivateArtifacts.finishExport(url) } catch { store.error = "导出的临时副本清除失败，将在保留期限后重试。" }
+        // UI dismissal may precede an extension finishing its file read.
+        // The UIKit activity completion owns the lease/file lifecycle.
         exportURL = nil
     }
 }
@@ -125,6 +125,15 @@ struct SettingsView: View {
 struct PrivateExport: Identifiable { let id = UUID(); let url: URL }
 struct PrivateShareSheet: UIViewControllerRepresentable {
     let url: URL
-    func makeUIViewController(context: Context) -> UIActivityViewController { UIActivityViewController(activityItems: [url], applicationActivities: nil) }
+    @MainActor static func controller(for url: URL) -> UIActivityViewController {
+        let controller = UIActivityViewController(activityItems:[url],applicationActivities:nil)
+        controller.completionWithItemsHandler = { _,_,_,_ in
+            Task { @MainActor in
+                do { try PrivateArtifacts.finishExport(url) } catch { LifeStore.shared.error = "分享已结束，但临时副本未能清除；原件保留，将在保留期限后核对。" }
+            }
+        }
+        return controller
+    }
+    func makeUIViewController(context: Context) -> UIActivityViewController { Self.controller(for:url) }
     func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
 }

@@ -100,7 +100,7 @@ struct StoryDetailView: View {
                     Button("删除这份故事",role:.destructive) { delete = true }
                 } label: { Image(systemName:"ellipsis.circle") }.accessibilityIdentifier("storyActions").accessibilityLabel("故事操作")
             }
-            .sheet(item:$export,onDismiss:{ if let url = exportURL { do { try PrivateArtifacts.finishExport(url) } catch { store.error = error.localizedDescription } }; exportURL = nil }) { PrivateShareSheet(url:$0.url) }
+            .sheet(item:$export,onDismiss:{ exportURL = nil }) { PrivateShareSheet(url:$0.url) }
             .sheet(isPresented:$next) { NewStoryView(previous:story) }
             .sheet(isPresented:Binding(get:{ pdf != nil },set:{ if !$0 { pdf = nil } })) { NavigationStack { if let pdf { StoryPDFPreview(data:pdf).navigationTitle("PDF预览").toolbar { Button("完成") { self.pdf = nil } } } } }
             .confirmationDialog("删除这份故事快照？",isPresented:$delete,titleVisibility:.visible) { Button("删除故事",role:.destructive) { store.deleteStory(story); dismiss() }; Button("取消",role:.cancel) {} } message: { Text("原记录和其他故事版本保留，已分享的PDF不会被远程删除。") }

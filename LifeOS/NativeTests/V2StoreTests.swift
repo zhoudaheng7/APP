@@ -100,7 +100,7 @@ import UniformTypeIdentifiers
         XCTAssertTrue(store.addPhoto(photo,bytes:image.data));let reopened=LifeStore(directory:parent)
         defer { try? reopened.close(); try? store.close() }
         XCTAssertTrue(reopened.ready,reopened.error ?? "");XCTAssertEqual(reopened.photoData(photo.id),image.data)
-        let backupURL=try XCTUnwrap(reopened.exportBackup());defer{try? FileManager.default.removeItem(at:backupURL)}
+        let backupURL=try XCTUnwrap(reopened.exportBackup());defer{try? PrivateArtifacts.finishExport(backupURL)}
         let backup=try LifeStore.decodeBackup(Data(contentsOf:backupURL));XCTAssertEqual(backup.media[photo.id.uuidString],image.data)
         reopened.deletePhoto(photo);XCTAssertTrue(reopened.restoreBackup(backup));XCTAssertTrue(reopened.data.photos.isEmpty);XCTAssertNil(reopened.photoData(photo.id))
     }
