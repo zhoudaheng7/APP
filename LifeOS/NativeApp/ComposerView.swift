@@ -18,6 +18,7 @@ struct ComposerView: View {
     var initialGoalID: UUID?
     var prefilledTitle = ""
     var initialTaskID: UUID?
+    var initialPlaceID: UUID?
     @State private var title = ""
     @State private var note = ""
     @State private var start = Date()
@@ -29,6 +30,7 @@ struct ComposerView: View {
     @State private var unit = "次"
     @State private var mood: Int?
     @State private var saved = false
+    @State private var placeID: UUID?
     @FocusState private var titleFocused: Bool
 
     var body: some View {
@@ -37,6 +39,7 @@ struct ComposerView: View {
                 switch kind {
                 case .task:
                     Section { titleField("例如：读完这一章"); TextField("补充一点想法", text: $note, axis: .vertical).lineLimit(3...5) }
+                    placePicker
                     if !store.data.goals.isEmpty {
                         Section { Picker("关联方向", selection: $goalID) { Text("暂不关联").tag(UUID?.none); ForEach(store.data.goals.filter { !$0.archived }) { Text($0.title).tag(Optional($0.id)) } } }
                     }
@@ -45,6 +48,7 @@ struct ComposerView: View {
                     Section { Text("这是一段实际投入。结束后可单独核对，任务是否完成由你另行确认。") .foregroundStyle(.secondary) }
                 case .plan:
                     Section { titleField("安排什么？"); taskPicker; Toggle("这是已有的日历承诺", isOn: $isCommitment) }
+                    placePicker
                     Section { DatePicker("开始", selection: $start); DatePicker("结束", selection: $end, in: start...) }
                     Section { Text(isCommitment ? "仅记录已有承诺，不会在系统日历创建事件。" : "私人计划只保存在朝屿，不会写入系统日历。") .foregroundStyle(.secondary) }
                 case .goal:
@@ -68,7 +72,7 @@ struct ComposerView: View {
                 start = cal.date(bySettingHour: cal.component(.hour, from: Date()), minute: 0, second: 0, of: initialDate) ?? initialDate
                 end = start.addingTimeInterval(3600)
                 if case .goal = kind { end = cal.date(byAdding: .month, value: 3, to: Date()) ?? end }
-                goalID = initialGoalID; taskID = initialTaskID; title = prefilledTitle
+                goalID = initialGoalID; taskID = initialTaskID; placeID = initialPlaceID; title = prefilledTitle
                 if let draft = EditorDrafts.load(draftKey) {
                     title = draft["title"] ?? title; note = draft["note"] ?? ""; value = draft["value"] ?? ""; unit = draft["unit"] ?? "次"
                     goalID = draft["goalID"].flatMap(UUID.init(uuidString:)) ?? initialGoalID; taskID = draft["taskID"].flatMap(UUID.init(uuidString:)) ?? initialTaskID
@@ -85,7 +89,8 @@ struct ComposerView: View {
         }.presentationDetents([.large])
     }
     func titleField(_ placeholder: String) -> some View { TextField(placeholder, text: $title, axis: .vertical).font(.title3).lineLimit(1...3).focused($titleFocused).accessibilityIdentifier("composerTitle") }
-    var draftKey: String { kind.id + (initialGoalID.map { ":" + $0.uuidString } ?? "") + (initialTaskID.map { ":" + $0.uuidString } ?? "") + (prefilledTitle.isEmpty ? "" : ":" + LifeStore.fingerprint(Data(prefilledTitle.utf8))) }
+    var draftKey: String { kind.id + (initialGoalID.map { ":" + $0.uuidString } ?? "") + (initialTaskID.map { ":" + $0.uuidString } ?? "") + (initialPlaceID.map { ":" + $0.uuidString } ?? "") + (prefilledTitle.isEmpty ? "" : ":" + LifeStore.fingerprint(Data(prefilledTitle.utf8))) }
+    var placePicker: some View { Section { Picker("关联地点", selection: $placeID) { Text("不关联地点").tag(UUID?.none); ForEach(store.data.knownPlaces) { Text($0.title).tag(Optional($0.id)) } }; Text("这是未来打算，不会被算作到过这里。") .font(.caption).foregroundStyle(.secondary) } }
     var taskPicker: some View { Picker("关联任务", selection: $taskID) { Text("独立记录").tag(UUID?.none); ForEach(store.data.tasks.filter(\.isOpen)) { Text($0.title).tag(Optional($0.id)) } } }
     var number: Double? { decimalValue(value) }
     var canSave: Bool {
@@ -102,9 +107,11 @@ struct ComposerView: View {
         let clean = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let success: Bool
         switch kind {
-        case .task: success = store.addTask(title: clean, note: note, goalID: goalID)
+        case .task: success = store.addTask(title: clean, note: note, goalID: goalID, placeID: placeID)
         case .session: success = store.startSession(title: clean, taskID: taskID)
-        case .plan: success = store.addPlan(LifePlan(title: clean, taskID: taskID, start: start, end: end, isCommitment: isCommitment))
+        case .plan:
+            var plan = LifePlan(title: clean, taskID: taskID, start: start, end: end, isCommitment: isCommitment); plan.placeID = placeID
+            success = store.addPlan(plan)
         case .goal: success = store.addGoal(LifeGoal(title: clean, intention: note, target: number!, unit: unit.trimmingCharacters(in: .whitespacesAndNewlines), due: end))
         case .measurement(let goal): success = store.addMeasurement(LifeMeasurement(goalID: goal.id, value: number!, note: note))
         case .review(let day): success = store.addReview(LifeReview(day: LifeSnapshot.dayKey(day), reflection: note.trimmingCharacters(in: .whitespacesAndNewlines), mood: mood))

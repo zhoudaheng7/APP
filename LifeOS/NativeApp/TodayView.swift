@@ -5,6 +5,7 @@ struct TodayView: View {
     @State private var day = Date()
     @State private var composer: ComposerKind?
     @State private var settings = false
+    init(day: Date = Date()) { _day = State(initialValue: day) }
     var openTasks: [LifeTask] { store.data.tasks.filter(\.isOpen).sorted { ($0.priority ?? 0) > ($1.priority ?? 0) } }
     var sessions: [LifeSession] { store.data.sessions.filter { overlapsDay($0.start, $0.end ?? Date(), day: day, zone: TimeZone(identifier: $0.timeZone) ?? .current) }.sorted { $0.start < $1.start } }
     var plans: [LifePlan] { store.data.plans.filter { !$0.cancelled && overlapsDay($0.start, $0.end, day: day, zone: TimeZone(identifier: $0.timeZone) ?? .current) }.sorted { $0.start < $1.start } }
@@ -26,6 +27,7 @@ struct TodayView: View {
                         metric("已完成", "\(store.data.tasks.filter { $0.completedAt.map { Calendar.current.isDate($0, inSameDayAs: day) } ?? false }.count)")
                         metric("已确认投入", minutesText(store.data.unionActualSeconds(from: Calendar.current.startOfDay(for: day), to: Calendar.current.date(byAdding: .day, value: 1, to: Calendar.current.startOfDay(for: day))!)))
                     }
+                    DatePicker("选择回看日期", selection: $day, displayedComponents: .date)
                     HStack {
                         Button { shiftDay(-1) } label: { Image(systemName: "chevron.left") }.accessibilityLabel("前一天")
                         Spacer()
@@ -105,8 +107,19 @@ struct TodayView: View {
                 }
             }
 
+            Section("到访与生活记忆") {
+                ForEach(store.data.visits.filter { visit in
+                    guard visit.state != "rejected", let date = visit.arrival ?? visit.departure else { return false }
+                    let stop = visit.arrival != nil ? visit.departure ?? date.addingTimeInterval(1) : date.addingTimeInterval(1)
+                    return overlapsDay(date, stop, day: day, zone: TimeZone(identifier: visit.timeZone) ?? .current)
+                }) { visit in NavigationLink { VisitDetailView(visitID: visit.id) } label: { VStack(alignment: .leading, spacing: 4) { VisitRow(visit: visit); Text(visit.state == "confirmed" ? "你已确认到访":"自动候选 · 尚未核对").font(.caption).foregroundStyle(.secondary) } } }
+                ForEach(store.data.places.filter { Calendar.current.isDate($0.occurredAt, inSameDayAs: day) }) { memory in NavigationLink(memory.title) { MemoryDetailView(memoryID: memory.id) } }
+                ForEach(store.data.routes.filter { overlapsDay($0.start, $0.end ?? Date(), day: day) }) { route in NavigationLink(route.title) { RouteDetailView(routeID: route.id) } }
+                Text("到访、记忆与路线各守原来的身份，不转成已完成任务或成果。") .font(.caption).foregroundStyle(.secondary)
+            }
+
             Section {
-                if let review = store.data.reviews.first(where: { $0.day == LifeSnapshot.dayKey(day) && $0.timeZone == TimeZone.current.identifier }) {
+                if let review = store.data.reviews.first(where: { $0.day == LifeSnapshot.dayKey(day) && $0.canonical != false }) {
                     Label("今天的复盘已留下", systemImage: "sparkles").foregroundStyle(.teal)
                     Text(review.reflection)
                     NavigationLink("查看与修订") { ReviewDetailView(reviewID: review.id) }

@@ -87,6 +87,14 @@ import UIKit
         let encoder=JSONEncoder();encoder.dateEncodingStrategy = .millisecondsSince1970
         XCTAssertThrowsError(try LifeStore.decodeBackup(encoder.encode(damaged)));XCTAssertEqual(store.data.tasks[0].title,"示例原任务")
     }
+    func testMalformedPhotoByteCountsThrowWithoutOverflow() {
+        var state=LifeSnapshot()
+        state.photos=(0..<3).map{ _ in LifePhoto(caption:"恶意容量样例",capturedAt:Date(),sha256:String(repeating:"a",count:64),width:1,height:1,bytes:Int.max) }
+        XCTAssertThrowsError(try state.validate())
+    }
+    func testDecimalInputsRejectTrailingGarbage() {
+        XCTAssertNil(decimalValue("12abc"));XCTAssertNil(decimalValue("--2"));XCTAssertEqual(decimalValue("-2.5"),-2.5);XCTAssertEqual(decimalValue("1e3"),1000)
+    }
     func testCompetingStoreNeverOverwritesAConcurrentCommit() throws {
         let parent=try temporaryDirectory(),first=LifeStore(directory:parent)
         XCTAssertTrue(first.addTask(title:"示例A",note:"",goalID:nil));let second=LifeStore(directory:parent)

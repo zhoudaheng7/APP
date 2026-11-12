@@ -5,7 +5,13 @@ func decimalValue(_ text: String) -> Double? {
     let formatter = NumberFormatter(); formatter.numberStyle = .decimal
     let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { return nil }
-    return formatter.number(from: trimmed)?.doubleValue ?? Double(trimmed)
+    let decimal = NSRegularExpression.escapedPattern(for: formatter.decimalSeparator ?? ".")
+    let group = NSRegularExpression.escapedPattern(for: formatter.groupingSeparator ?? ",")
+    let integer = "(?:[0-9]+|[0-9]{1,3}(?:" + group + "[0-9]{3})+)"
+    let pattern = "^[+-]?(?:" + integer + "(?:" + decimal + "[0-9]*)?|" + decimal + "[0-9]+)(?:[eE][+-]?[0-9]+)?$"
+    guard trimmed.range(of: pattern, options: .regularExpression) != nil else { return nil }
+    let normalized = trimmed.replacingOccurrences(of: formatter.groupingSeparator ?? ",", with: "").replacingOccurrences(of: formatter.decimalSeparator ?? ".", with: ".")
+    return Double(normalized)
 }
 
 struct ObjectiveListView: View {
@@ -43,6 +49,7 @@ struct ObjectiveDetailView: View {
     @State private var edit = false
     @State private var addKR = false
     @State private var addTask = false
+    @State private var showArchivedKR = false
     var goal: LifeGoal? { store.data.goals.first { $0.id == objectiveID } }
     var body: some View {
         if let goal {
@@ -55,10 +62,11 @@ struct ObjectiveDetailView: View {
                     if let assessment = goal.assessment, !assessment.isEmpty { LabeledContent("我的评估", value: assessment) }
                 }
                 Section("关键结果") {
-                    ForEach(store.data.keyResults.filter { $0.objectiveID == goal.id && !$0.archived }) { result in
+                    Toggle("显示已归档关键结果", isOn: $showArchivedKR)
+                    ForEach(store.data.keyResults.filter { $0.objectiveID == goal.id && (showArchivedKR || !$0.archived) }) { result in
                         NavigationLink { KeyResultDetailView(resultID: result.id) } label: {
                             VStack(alignment: .leading, spacing: 6) {
-                                Text(result.title).font(.headline)
+                                Text(result.title + (result.archived ? " · 已归档":"")).font(.headline)
                                 if let reading = store.data.currentMeasurement(for: result.id), let progress = store.data.progress(for: result) {
                                     Text("\(reading.value.formatted()) / \(result.target.formatted()) \(result.unit)").font(.subheadline)
                                     ProgressView(value: progress)
@@ -123,14 +131,14 @@ struct KeyResultEditor: View {
     @State private var target = ""
     @State private var unit = "次"
     @State private var weight = "1"
-    var valid: Bool { !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && decimalValue(baseline)?.isFinite == true && decimalValue(target)?.isFinite == true && decimalValue(baseline) != decimalValue(target) && (decimalValue(weight) ?? 0) > 0 }
+    var valid: Bool { !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !unit.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && decimalValue(baseline)?.isFinite == true && decimalValue(target)?.isFinite == true && decimalValue(baseline) != decimalValue(target) && (1...10).contains(decimalValue(weight) ?? 0) }
     var body: some View {
         NavigationStack { Form {
             TextField("关键结果", text: $title, axis: .vertical).accessibilityIdentifier("krTitle")
             TextField("起点", text: $baseline).keyboardType(.numbersAndPunctuation)
             TextField("目标值", text: $target).keyboardType(.numbersAndPunctuation).accessibilityIdentifier("krTarget")
             TextField("单位", text: $unit)
-            TextField("权重", text: $weight).keyboardType(.decimalPad)
+            TextField("权重（1至10）", text: $weight).keyboardType(.decimalPad)
             Text("记录的是累计当前值，不把多次读数相加。目标可以递增或递减；发生时间决定当前读数。") .font(.caption).foregroundStyle(.secondary)
         }.navigationTitle(original == nil ? "添加关键结果" : "编辑关键结果").navigationBarTitleDisplayMode(.inline).toolbar {
             ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() } }
@@ -161,6 +169,7 @@ struct KeyResultDetailView: View {
                     Section("成果变化") { Chart(readings.filter { $0.rejectedAt == nil }) { reading in LineMark(x: .value("发生时间", reading.effectiveAt), y: .value("累计值", reading.value)); PointMark(x: .value("发生时间", reading.effectiveAt), y: .value("累计值", reading.value)) }.frame(height: 180).accessibilityLabel("累计成果历史，不对读数求和") }
                 }
                 Section { Button("记录当前成果", systemImage: "plus") { add = true } }
+                Section { Button(result.archived ? "恢复这个关键结果" : "归档这个关键结果") { _ = store.commit(kind: "kr.archive", id: result.id) { state in guard let i = state.keyResults.firstIndex(where: { $0.id == result.id }) else { throw LifeError.invalidReference }; state.keyResults[i].archived.toggle(); state.keyResults[i].revision += 1 } }; Text("归档保留历史读数，并从当前目标加权进度中移出。") .font(.caption).foregroundStyle(.secondary) }
                 Section("来源与历史") {
                     ForEach(readings) { reading in
                         VStack(alignment: .leading, spacing: 6) {

@@ -135,10 +135,11 @@ extension LifeSnapshot {
     func validateV2() throws {
         func unique(_ values: [UUID]) -> Bool { Set(values).count == values.count }
         func finite(_ date: Date) -> Bool { date.timeIntervalSince1970.isFinite && abs(date.timeIntervalSince1970) < 253_402_300_800 }
-        guard photos.count <= 1000, photos.reduce(0, { $0 + $1.bytes }) <= 64 * 1024 * 1024,
+        guard photos.count <= 1000, photos.allSatisfy({ (1...2_000_000).contains($0.bytes) }), photos.reduce(0, { $0 + $1.bytes }) <= 64 * 1024 * 1024,
               keyResults.allSatisfy({ kr in goals.contains { $0.id == kr.objectiveID } && !kr.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && kr.baseline.isFinite && kr.target.isFinite && kr.target != kr.baseline && kr.weight.isFinite && (1...10).contains(kr.weight) && kr.revision > 0 }),
               measurements.allSatisfy({ m in m.keyResultID == nil || keyResults.contains { $0.id == m.keyResultID && $0.objectiveID == m.goalID } }),
               knownPlaces.allSatisfy({ !$0.title.isEmpty && (-90...90).contains($0.latitude) && (-180...180).contains($0.longitude) && (10...5000).contains($0.radius) }),
+              plans.allSatisfy({ plan in plan.placeID == nil || knownPlaces.contains { $0.id == plan.placeID } }),
               visits.allSatisfy({ v in (-90...90).contains(v.latitude) && (-180...180).contains(v.longitude) && v.accuracy.isFinite && v.accuracy >= 0 && ["inferred","confirmed","rejected"].contains(v.state) && (v.arrival == nil || finite(v.arrival!)) && (v.departure == nil || finite(v.departure!)) && (v.arrival == nil || v.departure == nil || v.departure! >= v.arrival!) && (v.placeID == nil || knownPlaces.contains { $0.id == v.placeID }) }),
               trips.allSatisfy({ t in !t.title.isEmpty && t.end >= t.start && unique(t.visitIDs) && unique(t.routeIDs) && unique(t.memoryIDs) && t.visitIDs.allSatisfy { id in visits.contains { $0.id == id } } && t.routeIDs.allSatisfy { id in routes.contains { $0.id == id } } && t.memoryIDs.allSatisfy { id in places.contains { $0.id == id } } }),
               photos.allSatisfy({ p in p.bytes > 0 && p.bytes <= 2_000_000 && p.width > 0 && p.height > 0 && p.width <= 1600 && p.height <= 1600 && p.sha256.count == 64 && p.metadataRemoved && (p.memoryID == nil || places.contains { $0.id == p.memoryID }) && (p.tripID == nil || trips.contains { $0.id == p.tripID }) }),
@@ -167,7 +168,8 @@ extension LifeSnapshot {
     }
     func progress(for keyResult: LifeKeyResult) -> Double? {
         guard let value = currentMeasurement(for: keyResult.id)?.value else { return nil }
-        return min(1, max(0, (value - keyResult.baseline) / (keyResult.target - keyResult.baseline)))
+        let scale = max(1,abs(value),abs(keyResult.baseline),abs(keyResult.target))
+        return min(1, max(0, (value / scale - keyResult.baseline / scale) / (keyResult.target / scale - keyResult.baseline / scale)))
     }
     func objectiveProgress(_ id: UUID) -> Double? {
         let children = keyResults.filter { $0.objectiveID == id && !$0.archived }

@@ -32,6 +32,17 @@ extension LifeStore {
         for plan in data.plans where !candidate.plans.contains(where: { $0.id == plan.id }) { candidate.tombstone(plan.id, kind: plan.isCommitment ? "commitment":"plan") }
         for session in data.sessions where !candidate.sessions.contains(where: { $0.id == session.id }) { candidate.tombstone(session.id, kind: "actual") }
         for review in data.reviews where !candidate.reviews.contains(where: { $0.id == review.id }) { candidate.tombstone(review.id, kind: "review") }
+        for visit in data.visits where !candidate.visits.contains(where: { $0.id == visit.id }) { candidate.tombstone(visit.id, kind: "visit") }
+        for route in data.routes where !candidate.routes.contains(where: { $0.id == route.id }) { candidate.tombstone(route.id, kind: "route") }
+        for memory in data.places where !candidate.places.contains(where: { $0.id == memory.id }) { candidate.tombstone(memory.id, kind: "memory") }
+        for photo in data.photos where !candidate.photos.contains(where: { $0.id == photo.id }) { candidate.tombstone(photo.id, kind: "photo") }
+        for trip in data.trips where !candidate.trips.contains(where: { $0.id == trip.id }) { candidate.tombstone(trip.id, kind: "trip") }
+        for place in data.knownPlaces where !candidate.knownPlaces.contains(where: { $0.id == place.id }) { candidate.tombstone(place.id, kind: "known-place") }
+        for goal in data.goals where !candidate.goals.contains(where: { $0.id == goal.id }) { candidate.tombstone(goal.id, kind: "goal") }
+        for result in data.keyResults where !candidate.keyResults.contains(where: { $0.id == result.id }) { candidate.tombstone(result.id, kind: "kr") }
+        for reading in data.measurements where !candidate.measurements.contains(where: { $0.id == reading.id }) { candidate.tombstone(reading.id, kind: "measurement") }
+        for review in data.periodReviews where !candidate.periodReviews.contains(where: { $0.id == review.id }) { candidate.tombstone(review.id, kind: "period-review") }
+        candidate.applyDeletionHistory()
         for i in candidate.collectionWindows.indices where candidate.collectionWindows[i].end == nil { candidate.collectionWindows[i].end = Date() }
         let kept = Set(candidate.photos.map(\.id))
         var media: [MediaMutation] = data.photos.filter { !kept.contains($0.id) }.map { .remove($0.id) }
@@ -72,6 +83,11 @@ extension LifeSnapshot {
         func deleted(_ kind: String) -> Set<UUID> { Set(tombstones.filter { $0.kind == kind }.map(\.id)) }
         let taskIDs = deleted("task"), actualIDs = deleted("actual"), memoryIDs = deleted("memory"), photoIDs = deleted("photo")
         let routeIDs = deleted("route"), visitIDs = deleted("visit"), tripIDs = deleted("trip"), knownIDs = deleted("known-place"), planIDs = deleted("plan").union(deleted("commitment")), reviewIDs = deleted("review")
+        let goalIDs = deleted("goal"), resultIDs = deleted("kr"), readingIDs = deleted("measurement"), periodIDs = deleted("period-review")
+        goals.removeAll { goalIDs.contains($0.id) }; keyResults.removeAll { resultIDs.contains($0.id) || goalIDs.contains($0.objectiveID) }
+        let validResults = Set(keyResults.map(\.id))
+        measurements.removeAll { readingIDs.contains($0.id) || goalIDs.contains($0.goalID) || ($0.keyResultID != nil && !validResults.contains($0.keyResultID!)) }
+        periodReviews.removeAll { periodIDs.contains($0.id) }
         tasks.removeAll { taskIDs.contains($0.id) }; sessions.removeAll { actualIDs.contains($0.id) }
         places.removeAll { memoryIDs.contains($0.id) }; photos.removeAll { photoIDs.contains($0.id) || $0.memoryID.map { memoryIDs.contains($0) } == true }
         routes.removeAll { routeIDs.contains($0.id) }; visits.removeAll { visitIDs.contains($0.id) }
@@ -80,6 +96,7 @@ extension LifeSnapshot {
         for i in plans.indices { if plans[i].taskID.map({ taskIDs.contains($0) }) == true { plans[i].taskID = nil }; if plans[i].placeID.map({ knownIDs.contains($0) }) == true { plans[i].placeID = nil } }
         for i in sessions.indices { if sessions[i].taskID.map({ taskIDs.contains($0) }) == true { sessions[i].taskID = nil }; if sessions[i].tripID.map({ tripIDs.contains($0) }) == true { sessions[i].tripID = nil } }
         for i in tasks.indices where tasks[i].placeID.map({ knownIDs.contains($0) }) == true { tasks[i].placeID = nil }
+        for i in tasks.indices where tasks[i].goalID.map({ goalIDs.contains($0) }) == true { tasks[i].goalID = nil }
         for i in places.indices { if places[i].tripID.map({ tripIDs.contains($0) }) == true { places[i].tripID = nil }; if places[i].knownPlaceID.map({ knownIDs.contains($0) }) == true { places[i].knownPlaceID = nil }; if places[i].visitID.map({ visitIDs.contains($0) }) == true { places[i].visitID = nil } }
         for i in visits.indices where visits[i].placeID.map({ knownIDs.contains($0) }) == true { visits[i].placeID = nil }
         for i in routes.indices where routes[i].tripID.map({ tripIDs.contains($0) }) == true { routes[i].tripID = nil }

@@ -116,8 +116,8 @@ enum MediaMutation { case put(UUID, Data), remove(UUID) }
 
     var runningSession: LifeSession? { data.sessions.first { $0.end == nil } }
     var runningRoute: LifeRoute? { data.routes.first { $0.end == nil } }
-    func addTask(title: String, note: String, goalID: UUID?) -> Bool {
-        let task = LifeTask(title: title.trimmingCharacters(in: .whitespacesAndNewlines), note: note, goalID: goalID)
+    func addTask(title: String, note: String, goalID: UUID?, placeID: UUID? = nil) -> Bool {
+        let task = LifeTask(title: title.trimmingCharacters(in: .whitespacesAndNewlines), note: note, goalID: goalID, placeID: placeID)
         return commit(kind: "task.create", id: task.id) { $0.tasks.insert(task, at: 0) }
     }
     func completeTask(_ task: LifeTask) {

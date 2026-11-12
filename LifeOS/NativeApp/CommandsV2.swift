@@ -94,7 +94,9 @@ extension LifeStore {
         }
     }
     func saveKnownPlace(_ place: KnownPlace) -> Bool {
-        commit(kind: "known-place.save", id: place.id) { state in
+        var place = place
+        place.title = place.title.trimmingCharacters(in: .whitespacesAndNewlines); place.city = place.city.trimmingCharacters(in: .whitespacesAndNewlines); place.country = place.country.trimmingCharacters(in: .whitespacesAndNewlines)
+        return commit(kind: "known-place.save", id: place.id) { state in
             if let i = state.knownPlaces.firstIndex(where: { $0.id == place.id }) { var revised = place; revised.revision += 1; state.knownPlaces[i] = revised }
             else { state.knownPlaces.append(place) }
         }

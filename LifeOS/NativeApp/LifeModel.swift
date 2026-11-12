@@ -108,6 +108,7 @@ struct RoutePoint: Codable, Equatable {
     var longitude: Double
     var at = Date()
     var segment = 0
+    var accuracy: Double?
 }
 
 struct LifeRoute: Codable, Identifiable, Equatable {

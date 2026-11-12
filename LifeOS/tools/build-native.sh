@@ -40,7 +40,7 @@ xcrun simctl status_bar "$SIMULATOR_ID" override --time '9:41' --batteryState ch
 xcrun simctl ui "$SIMULATOR_ID" appearance light
 BASELINE=5800cd924066c81d4096efbb50f5b0fd7141fdc9
 mkdir -p build/baseline
-git archive "$BASELINE" LifeOS | tar -x -C build/baseline
+git -C .. archive "$BASELINE" LifeOS | tar -x -C build/baseline
 (
   cd build/baseline/LifeOS
   python3 tools/make_native_icon.py

@@ -102,12 +102,16 @@ import Observation
         wantsFix = false
         guard (foreground || backgroundRoute) && wantsRoute, let store, let route = store.runningRoute else { return }
         guard Date().timeIntervalSince(route.start) <= 6 * 3600 else { stopRoute(); error = "本段短路线达到6小时上限，已结束保存。"; return }
+        if let gap = route.gaps?.last, gap.to == nil && fix.timestamp < gap.from { return }
         if let previous = route.points.last, fix.timestamp.timeIntervalSince(previous.at) > 120 {
             store.routeGap("采样间隔超过两分钟", at: previous.at); routeSegment += 1
         }
         if let lastRecorded, fix.distance(from: lastRecorded) < 10 || fix.timestamp.timeIntervalSince(lastRecorded.timestamp) < 5 { return }
+        if let lastRecorded, fix.timestamp > lastRecorded.timestamp, fix.distance(from: lastRecorded) / fix.timestamp.timeIntervalSince(lastRecorded.timestamp) > 120 {
+            store.routeGap("位置跳变过大，已分段，未推算中间路径", at: lastRecorded.timestamp); routeSegment += 1
+        }
         self.lastRecorded = fix
-        store.appendRoutePoint(RoutePoint(latitude: fix.coordinate.latitude, longitude: fix.coordinate.longitude, at: fix.timestamp, segment: routeSegment))
+        store.appendRoutePoint(RoutePoint(latitude: fix.coordinate.latitude, longitude: fix.coordinate.longitude, at: fix.timestamp, segment: routeSegment, accuracy: fix.horizontalAccuracy))
     }
     func locationManager(_ manager: CLLocationManager, didVisit visit: CLVisit) {
         guard visitOptIn, manager.authorizationStatus == .authorizedAlways else { return }
