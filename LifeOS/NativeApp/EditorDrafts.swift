@@ -11,7 +11,7 @@ struct RecordDraft<Value: Codable>: Codable {
     private static var drafts: [String: [String: String]]?
     private static var readFailure: Error?
     private static var versions: [String:Int] = [:]
-    static func version(_ key: String) -> Int { versions[key,default:0] }
+    static func version(_ key: String) -> Int { if versions[key] == nil { versions[key] = 0 }; return versions[key]! }
     private static func url() throws -> URL {
         let root = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true).appendingPathComponent("LifeOS", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -23,7 +23,7 @@ struct RecordDraft<Value: Codable>: Codable {
                 let path = try url()
                 if FileManager.default.fileExists(atPath: path.path) {
                     let bytes = try Data(contentsOf: path)
-                    guard bytes.count <= 2_000_000 else { throw LifeError.message("草稿文件超过容量限制，原件已保留。") }
+                    guard bytes.count <= 16 * 1024 * 1024 else { throw LifeError.message("草稿文件超过容量限制，原件已保留。") }
                     drafts = try JSONDecoder().decode([String: [String: String]].self, from: bytes)
                 } else { drafts = [:] }
             } catch { readFailure = error; return nil }
@@ -38,15 +38,20 @@ struct RecordDraft<Value: Codable>: Codable {
         do { return try JSONDecoder().decode(type, from: Data(text.utf8)) }
         catch { LifeStore.shared.error = "这份编辑草稿无法读取，原件已保留。"; return nil }
     }
+    static func decode<Value: Decodable>(_ type: Value.Type,text: String) -> Value? { try? JSONDecoder().decode(type,from:Data(text.utf8)) }
     static func fields<Value: Encodable>(_ value: Value) -> [String: String] {
         do { return ["record": String(decoding: try JSONEncoder().encode(value), as: UTF8.self)] }
         catch { LifeStore.shared.error = "编辑草稿无法编码，请先保留本页内容。"; return [:] }
     }
-    static func remove(entities: Set<UUID>) {
+    static func remove(deleted: [LocalTombstone]) {
         _ = load(""); guard readFailure == nil else { return }
-        let ids = Set(entities.map { $0.uuidString.lowercased() })
-        let candidate = (drafts ?? [:]).filter { key, _ in !key.split(separator: ":").contains { ids.contains($0.lowercased()) } }
-        for key in (drafts ?? [:]).keys where candidate[key] == nil { versions[key,default:0] += 1 }
+        let prefixes = ["commitment":"plan"]
+        let keys = Set(deleted.map { (prefixes[$0.kind] ?? $0.kind) + ":" + $0.id.uuidString.lowercased() })
+        let owned = Set((drafts ?? [:]).keys).union(versions.keys).filter { keys.contains($0.lowercased()) }
+        let candidate = (drafts ?? [:]).filter { !owned.contains($0.key) }
+        // Invalidate even an editor whose debounce has not written its first byte.
+        // Context IDs in a new composer are associations, not draft ownership.
+        for key in owned { versions[key,default:0] += 1 }
         do { try persist(candidate) } catch { LifeStore.shared.error = "记录已删除，但相关草稿清除失败。" }
     }
     static func write(_ key: String, fields: [String: String]) throws {
@@ -62,7 +67,7 @@ struct RecordDraft<Value: Codable>: Codable {
     private static func persist(_ candidate: [String:[String:String]]) throws {
         if candidate == drafts { return }
         let bytes = try JSONEncoder().encode(candidate)
-        guard bytes.count <= 2_000_000 else { throw LifeError.message("草稿超过2MB，未覆盖原文件。") }
+        guard bytes.count <= 16 * 1024 * 1024 else { throw LifeError.message("本机未保存草稿超过16MB，未覆盖原文件。请先保存或整理已有照片草稿。") }
         try bytes.write(to: url(), options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication]); drafts = candidate
     }
 }

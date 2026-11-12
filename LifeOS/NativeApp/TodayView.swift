@@ -166,7 +166,7 @@ struct PlansView: View {
                 ForEach(plans) { plan in
                     NavigationLink { PlanEditor(planID: plan.id) } label: { VStack(alignment: .leading, spacing: 7) {
                         HStack { Text(plan.title).font(.headline); Spacer(); Image(systemName: plan.isCommitment ? "calendar.badge.clock" : "rectangle.dashed") .foregroundStyle(plan.isCommitment ? .orange : .teal) }
-                        Text(plan.start.formatted(date: .omitted, time: .shortened) + " – " + plan.end.formatted(date: .abbreviated, time: .shortened)).font(.subheadline).foregroundStyle(.secondary)
+                        Text(recordTimeText(plan.start,zone:plan.timeZone) + " – " + recordTimeText(plan.end,zone:plan.timeZone)).font(.subheadline).foregroundStyle(.secondary)
                         Text(plan.isCommitment ? "本机承诺记录" : "私人计划 · 不写系统日历").font(.caption).foregroundStyle(.secondary)
                         if plan.cancelled { Text("已取消").foregroundStyle(.secondary) }
                     }.padding(.vertical, 5) }

@@ -1,12 +1,14 @@
 import Foundation
 
 extension LifeStore {
+    static let backupByteLimit = 256 * 1024 * 1024
     static func decodeBackup(_ bytes: Data) throws -> LifeBackup {
-        guard bytes.count <= 128 * 1024 * 1024 else { throw LifeError.message("备份超过128MB，未读取。") }
+        guard bytes.count <= backupByteLimit else { throw LifeError.message("备份超过256MB，未读取。") }
         let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .millisecondsSince1970
-        let header = try JSONSerialization.jsonObject(with: bytes) as? [String: Any]
+        struct Header: Decodable { var format: String? }
+        let header = try decoder.decode(Header.self,from:bytes)
         let backup: LifeBackup
-        if header?["format"] != nil {
+        if header.format != nil {
             backup = try decoder.decode(LifeBackup.self, from: bytes)
             guard backup.format == "dayisle-private-backup/v2" else { throw LifeError.message("不支持此备份版本。") }
         } else {
@@ -43,6 +45,7 @@ extension LifeStore {
         for result in data.keyResults where !candidate.keyResults.contains(where: { $0.id == result.id }) { candidate.tombstone(result.id, kind: "kr") }
         for reading in data.measurements where !candidate.measurements.contains(where: { $0.id == reading.id }) { candidate.tombstone(reading.id, kind: "measurement") }
         for review in data.periodReviews where !candidate.periodReviews.contains(where: { $0.id == review.id }) { candidate.tombstone(review.id, kind: "period-review") }
+        for story in data.stories where !candidate.stories.contains(where:{ $0.id == story.id }) { candidate.tombstone(story.id,kind:"story") }
         candidate.applyDeletionHistory()
         for i in candidate.collectionWindows.indices where candidate.collectionWindows[i].end == nil { candidate.collectionWindows[i].end = Date() }
         let kept = Set(candidate.photos.map(\.id))
@@ -72,9 +75,9 @@ extension LifeStore {
             for memory in data.places { lines += ["### " + memory.title, memory.occurredAt.formatted(), memory.note, ""] }
             lines += ["## 周期回顾"]
             for review in data.periodReviews { lines += ["### " + review.title, review.reflection, "下一步：" + review.nextStep, ""] }
-            let url = FileManager.default.temporaryDirectory.appendingPathComponent("Dayisle-readable.md")
-            try Data(lines.joined(separator: "\n").utf8).write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
-            return url
+            lines += ["## 已保存故事快照"]
+            for story in data.stories { lines += ["### " + story.title + " · 第\(story.version)版",story.narrative]; for section in story.sections { lines += [section.title,section.text,""] } }
+            return try PrivateArtifacts.export(Data(lines.joined(separator:"\n").utf8),name:"Dayisle-readable.md")
         } catch { self.error = error.localizedDescription; return nil }
     }
 }
@@ -82,6 +85,7 @@ extension LifeStore {
 extension LifeSnapshot {
     mutating func applyDeletionHistory() {
         func deleted(_ kind: String) -> Set<UUID> { Set(tombstones.filter { $0.kind == kind }.map(\.id)) }
+        let storyIDs = deleted("story"); stories.removeAll { storyIDs.contains($0.id) }
         let taskIDs = deleted("task"), actualIDs = deleted("actual"), memoryIDs = deleted("memory"), photoIDs = deleted("photo")
         let routeIDs = deleted("route"), visitIDs = deleted("visit"), tripIDs = deleted("trip"), knownIDs = deleted("known-place"), planIDs = deleted("plan").union(deleted("commitment")), reviewIDs = deleted("review")
         let goalIDs = deleted("goal"), resultIDs = deleted("kr"), readingIDs = deleted("measurement"), periodIDs = deleted("period-review")

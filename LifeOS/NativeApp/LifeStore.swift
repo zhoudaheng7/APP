@@ -50,8 +50,9 @@ enum MediaMutation { case put(UUID, Data), remove(UUID) }
                 payloadFingerprint = Self.fingerprint(bytes)
                 let originalVersion = (try JSONSerialization.jsonObject(with: bytes) as? [String: Any])?["schemaVersion"] as? Int
                 if originalVersion == 1 {
-                    let copy = parent.appendingPathComponent("before-v2-migration.json")
-                    if !FileManager.default.fileExists(atPath: copy.path) { try bytes.write(to: copy, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication]) }
+                    if !inMemory { try MigrationProtection.preserve(bytes,root:parent) }
+                } else if !inMemory {
+                    do { try MigrationProtection.sweep(root:parent) } catch { self.error = error.localizedDescription }
                 }
             }
             ready = true
@@ -121,7 +122,8 @@ enum MediaMutation { case put(UUID, Data), remove(UUID) }
                 switch mutation {
                 case .put(_, let content):
                     guard let descriptor = candidate.photos.first(where: { $0.id == mediaID }),
-                          content.count == descriptor.bytes, Self.fingerprint(content) == descriptor.sha256 else { throw LifeError.invalidValue }
+                          content.count == descriptor.bytes, Self.fingerprint(content) == descriptor.sha256,
+                          PhotoProcessor.isSanitizedJPEG(content,width:descriptor.width,height:descriptor.height) else { throw LifeError.invalidValue }
                     let blob = existing ?? NSEntityDescription.insertNewObject(forEntityName: "LifeOSSnapshot", into: container.viewContext)
                     blob.setValue("media:" + mediaID.uuidString, forKey: "key"); blob.setValue(content, forKey: "payload")
                 case .remove:
@@ -129,9 +131,9 @@ enum MediaMutation { case put(UUID, Data), remove(UUID) }
                 }
             }
             try container.viewContext.save()
-            let deletedIDs = Set(candidate.tombstones.filter { marker in !data.tombstones.contains { $0.id == marker.id && $0.kind == marker.kind } }.map(\.id))
+            let deleted = candidate.tombstones.filter { marker in !data.tombstones.contains { $0.id == marker.id && $0.kind == marker.kind } }
             row = object; data = candidate; payloadFingerprint = Self.fingerprint(bytes)
-            if !deletedIDs.isEmpty { EditorDrafts.remove(entities: deletedIDs) }
+            if !deleted.isEmpty { EditorDrafts.remove(deleted: deleted) }
             if !media.isEmpty { imageCache.removeAllObjects() }
             if kind.hasPrefix("plan.") || kind.hasPrefix("commitment.") || kind == "backup.restore" {
                 let reminderPlans = candidate.plans
@@ -233,15 +235,15 @@ enum MediaMutation { case put(UUID, Data), remove(UUID) }
     }
     func exportBackup() -> URL? {
         do {
-            let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .millisecondsSince1970; encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .millisecondsSince1970; encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
             var blobs: [String: Data] = [:]
             for photo in data.photos {
                 guard let bytes = photoData(photo.id), Self.fingerprint(bytes) == photo.sha256 else { throw LifeError.message("照片副本缺失，备份未生成；当前记录未改变。") }
                 blobs[photo.id.uuidString] = bytes
             }
-            let url = FileManager.default.temporaryDirectory.appendingPathComponent("Dayisle-private-backup.json")
-            try encoder.encode(LifeBackup(snapshot: data, media: blobs)).write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
-            return url
+            let bytes = try encoder.encode(LifeBackup(snapshot: data, media: blobs))
+            guard bytes.count <= Self.backupByteLimit else { throw LifeError.message("备份超过256MB，原数据保留。") }
+            return try PrivateArtifacts.export(bytes,name:"Dayisle-private-backup.json")
         } catch { self.error = error.localizedDescription; return nil }
     }
 

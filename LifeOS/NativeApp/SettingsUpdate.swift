@@ -71,6 +71,7 @@ struct SettingsView: View {
                 Button("导出可读文字", systemImage: "doc.text") { share(store.readableExport()) }.disabled(exportURL != nil)
                 Button("从备份恢复", systemImage: "arrow.clockwise.icloud") { restorePicker = true }
                 Text("备份包含你的文字和精确位置。请保存到可信位置。恢复会替换 朝屿当前记录，建议先导出当前备份。") .font(.caption).foregroundStyle(.secondary)
+                Text("完整备份包含已保存记录与照片副本，不包含未保存编辑草稿、目录权限或系统授权。分享用的本机副本结束后清除，异常中断的副本24小时后按哈希核对清理。旧版迁移保护副本在新版已保存后保留7天。") .font(.caption).foregroundStyle(.secondary)
             }
             Section("提醒与快捷指令") {
                 Button("主动启用计划提醒", systemImage: "bell") { Task { await notifications.authorize(plans: store.data.plans) } }
@@ -80,6 +81,8 @@ struct SettingsView: View {
             }
             Section("本版能力") {
                 NavigationLink("Obsidian文件交换与面板") { VaultSettingsView() }
+                NavigationLink("健康上下文") { HealthContextView() }
+                NavigationLink("天气上下文") { WeatherContextView() }
                 Text("桌面小组件与灵动岛需要独立的苹果签名描述文件，现有签名条件尚不具备。这两项不作为本版已交付能力。") .font(.caption).foregroundStyle(.secondary)
             }
             if let configured = Bundle.main.object(forInfoDictionaryKey: "LifeOSWorkbenchURL") as? String,
@@ -91,12 +94,13 @@ struct SettingsView: View {
                 Text("自动到访须主动开启；短路线须主动开始，每段可选择是否允许后台。日历只在你明确操作时读取、导入或打开系统编辑器。")
             }.font(.subheadline).foregroundStyle(.secondary)
         }.navigationTitle("我的朝屿").navigationBarTitleDisplayMode(.inline)
+            .task { do { try PrivateArtifacts.sweep() } catch { store.error = error.localizedDescription } }
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } }
             .fileImporter(isPresented: $restorePicker, allowedContentTypes: [.json]) { result in
                 do {
                     let url = try result.get(); let access = url.startAccessingSecurityScopedResource(); defer { if access { url.stopAccessingSecurityScopedResource() } }
                     let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
-                    guard size <= 128 * 1024 * 1024 else { throw LifeError.message("备份文件过大。") }
+                    guard size <= LifeStore.backupByteLimit else { throw LifeError.message("备份文件超过256MB。") }
                     restoreCandidate = try LifeStore.decodeBackup(Data(contentsOf: url))
                 } catch { store.error = "无法读取此备份，当前数据未改变。" }
             }
@@ -113,10 +117,7 @@ struct SettingsView: View {
     func share(_ url: URL?) { if let url { exportURL = url; exportFile = PrivateExport(url: url) } }
     func cleanupExport() {
         guard let url = exportURL else { return }
-        let allowed = ["Dayisle-private-backup.json","Dayisle-readable.md"]
-        if url.deletingLastPathComponent().standardizedFileURL == FileManager.default.temporaryDirectory.standardizedFileURL && allowed.contains(url.lastPathComponent) {
-            do { try FileManager.default.removeItem(at: url) } catch { store.error = "导出的临时副本未能清除，可再次打开设置后重试导出。" }
-        }
+        do { try PrivateArtifacts.finishExport(url) } catch { store.error = "导出的临时副本清除失败，将在保留期限后重试。" }
         exportURL = nil
     }
 }

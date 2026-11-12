@@ -24,12 +24,19 @@ extension LifeStore {
             state.tombstone(task.id, kind: "task")
         }
     }
-    func editPlan(_ original: LifePlan, title: String, start: Date, end: Date, taskID: UUID?, note: String, reminder: Int?) -> Bool {
+    func editPlan(_ original: LifePlan, title: String, start: Date, end: Date, taskID: UUID?, note: String, reminder: Int?,timeZone: String? = nil,allDay: Bool? = nil) -> Bool {
         commit(kind: "plan.edit", id: original.id) { state in
             guard let i = state.plans.firstIndex(where: { $0.id == original.id }), state.plans[i].revision == original.revision else { throw LifeError.message("计划版本已变化，请重新打开。") }
             try state.audit(state.plans[i], id: original.id, kind: "plan", revision: original.revision)
             state.plans[i].title = title.trimmingCharacters(in: .whitespacesAndNewlines); state.plans[i].start = start; state.plans[i].end = end
             state.plans[i].taskID = taskID; state.plans[i].note = note; state.plans[i].reminderMinutes = reminder; state.plans[i].revision += 1
+            state.plans[i].timeZone = timeZone ?? original.timeZone
+            state.plans[i].allDay = allDay ?? original.allDay
+            if state.plans[i].allDay == true {
+                var calendar = Calendar(identifier:.gregorian); calendar.timeZone = TimeZone(identifier:state.plans[i].timeZone) ?? .current
+                state.plans[i].start = calendar.startOfDay(for:start); state.plans[i].end = calendar.startOfDay(for:end)
+                guard state.plans[i].end > state.plans[i].start else { throw LifeError.message("全天安排的截止日期不包含在安排内，请至少选择下一天。") }
+            }
         }
     }
     func repeatPlan(_ original: LifePlan, everyDays: Int, count: Int) -> Bool {
@@ -41,16 +48,20 @@ extension LifeStore {
                       let end = calendar.date(byAdding: .day, value: everyDays * index, to: original.end) else { throw LifeError.invalidValue }
                 var copy = LifePlan(title: original.title, taskID: original.taskID, start: start, end: end, timeZone: original.timeZone, isCommitment: false)
                 copy.note = original.note; copy.seriesID = series; state.plans.append(copy)
+                state.plans[state.plans.count - 1].allDay = original.allDay
+                state.plans[state.plans.count - 1].placeID = original.placeID
+                state.plans[state.plans.count - 1].reminderMinutes = original.reminderMinutes
             }
         }
     }
-    func editSession(_ original: LifeSession, title: String, start: Date, end: Date, note: String, confirmed: Bool) -> Bool {
+    func editSession(_ original: LifeSession, title: String, start: Date, end: Date, note: String, confirmed: Bool,timeZone: String? = nil) -> Bool {
         commit(kind: "actual.correct", id: original.id) { state in
             guard let i = state.sessions.firstIndex(where: { $0.id == original.id }), state.sessions[i].revision == original.revision,
                   original.end != nil || original.restorePending == true else { throw LifeError.message("请先结束计时，再修正这段记录。") }
             try state.audit(state.sessions[i], id: original.id, kind: "actual", revision: original.revision)
             state.sessions[i].title = title.trimmingCharacters(in: .whitespacesAndNewlines); state.sessions[i].start = start
             state.sessions[i].end = end; state.sessions[i].note = note; state.sessions[i].confirmed = confirmed; state.sessions[i].restorePending = false; state.sessions[i].revision += 1
+            state.sessions[i].timeZone = timeZone ?? original.timeZone
         }
     }
     func deleteSession(_ session: LifeSession) {

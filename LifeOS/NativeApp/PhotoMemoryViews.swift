@@ -8,13 +8,23 @@ struct PreparedPhoto: Sendable {
     let width: Int
     let height: Int
 }
+struct PhotoEditorDraft: Codable {
+    var jpeg: Data?
+    var width: Int?
+    var height: Int?
+    var caption: String
+    var date: Date
+    var memoryID: UUID?
+    var tripID: UUID?
+}
 enum PhotoProcessor {
-    static func prepare(_ bytes: Data) throws -> PreparedPhoto {
+    static func prepare(_ bytes: Data,maxDimension: Int = 1600) throws -> PreparedPhoto {
+        guard (1...1600).contains(maxDimension) else { throw LifeError.invalidValue }
         guard bytes.count <= 25 * 1024 * 1024, let source = CGImageSourceCreateWithData(bytes as CFData, nil), CGImageSourceGetCount(source) > 0 else { throw LifeError.message("图片无法读取或超过25MB。") }
         let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
         let width = properties?[kCGImagePropertyPixelWidth] as? Int ?? 0, height = properties?[kCGImagePropertyPixelHeight] as? Int ?? 0
         guard width > 0, height > 0, Double(width) * Double(height) <= 100_000_000 else { throw LifeError.message("图片像素过大。") }
-        let options: [CFString: Any] = [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceThumbnailMaxPixelSize: 1600, kCGImageSourceCreateThumbnailWithTransform: true]
+        let options: [CFString: Any] = [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceThumbnailMaxPixelSize: maxDimension, kCGImageSourceCreateThumbnailWithTransform: true]
         guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { throw LifeError.message("无法处理这张图片。") }
         guard let colorSpace = CGColorSpace(name:CGColorSpace.sRGB), let context = CGContext(data:nil,width:image.width,height:image.height,bitsPerComponent:8,bytesPerRow:0,space:colorSpace,bitmapInfo:CGImageAlphaInfo.premultipliedLast.rawValue) else { throw LifeError.invalidValue }
         context.setFillColor(CGColor(srgbRed:1,green:1,blue:1,alpha:1)); context.fill(CGRect(x:0,y:0,width:CGFloat(image.width),height:CGFloat(image.height)))
@@ -55,17 +65,19 @@ struct PhotoStrip: View {
     @Environment(LifeStore.self) private var store
     let photos: [LifePhoto]
     @State private var deleting: LifePhoto?
+    @State private var editing: LifePhoto?
     var body: some View {
         ForEach(photos) { photo in
             VStack(alignment: .leading, spacing: 8) {
                 if let bytes = store.photoData(photo.id), let image = UIImage(data: bytes) { Image(uiImage: image).resizable().scaledToFit().frame(maxHeight: 340).clipShape(RoundedRectangle(cornerRadius: 16)) }
                 else { Label("照片副本暂不可读，文字仍保留", systemImage: "photo.badge.exclamationmark").foregroundStyle(.secondary) }
-                HStack { VStack(alignment: .leading) { if !photo.caption.isEmpty { Text(photo.caption) }; Text(photo.capturedAt.formatted(date: .abbreviated, time: .omitted)).font(.caption).foregroundStyle(.secondary) }; Spacer(); Button(role: .destructive) { deleting = photo } label: { Image(systemName: "trash") }.buttonStyle(.borderless).accessibilityLabel("删除照片副本") }
+                HStack { VStack(alignment: .leading) { if !photo.caption.isEmpty { Text(photo.caption) }; Text(photo.capturedAt.formatted(date: .abbreviated, time: .omitted)).font(.caption).foregroundStyle(.secondary) }; Spacer(); Button { editing = photo } label: { Image(systemName:"pencil") }.buttonStyle(.borderless).accessibilityLabel("编辑照片记忆"); Button(role: .destructive) { deleting = photo } label: { Image(systemName: "trash") }.buttonStyle(.borderless).accessibilityLabel("删除照片副本") }
             }.padding(.vertical, 5)
         }
         .confirmationDialog("删除朝屿中的照片副本？", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }), titleVisibility: .visible) {
             Button("删除副本", role: .destructive) { if let photo = deleting { store.deletePhoto(photo) }; deleting = nil }; Button("取消", role: .cancel) {}
         } message: { Text("不会删除系统相册中的原图。") }
+        .sheet(item:$editing) { PhotoDetailEditor(photo:$0) }
     }
 }
 
@@ -83,6 +95,9 @@ struct AddPhotoView: View {
     @State private var selectedMemoryID: UUID?
     @State private var selectedTripID: UUID?
     @State private var initialized = false
+    @State private var saved = false
+    var draftKey: String { "new-photo:" + (memoryID?.uuidString ?? "independent") + ":" + (tripID?.uuidString ?? "independent") }
+    var draft: PhotoEditorDraft { PhotoEditorDraft(jpeg:prepared?.data,width:prepared?.width,height:prepared?.height,caption:caption,date:date,memoryID:selectedMemoryID,tripID:selectedTripID) }
     var body: some View {
         NavigationStack { Form {
             Section {
@@ -99,11 +114,13 @@ struct AddPhotoView: View {
             }
             Section { Text("只保存你选中的这一张的压缩副本，不扫描相册、不读取照片位置或拍摄时间，不上传。全部照片副本总计上限64MB。") .font(.caption).foregroundStyle(.secondary) }
         }.navigationTitle("一张生活记忆").navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() } }; ToolbarItem(placement: .confirmationAction) { Button("保存") { if let prepared { let photo = LifePhoto(caption: caption, capturedAt: date, memoryID: selectedMemoryID, tripID: selectedTripID, sha256: LifeStore.fingerprint(prepared.data), width: prepared.width, height: prepared.height, bytes: prepared.data.count); if store.addPhoto(photo, bytes: prepared.data) { dismiss() } } }.disabled(prepared == nil || loading) } }
-            .onAppear { if !initialized { initialized = true; selectedMemoryID = memoryID; selectedTripID = tripID } }
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() } }; ToolbarItem(placement: .confirmationAction) { Button("保存") { if let prepared { let photo = LifePhoto(caption: caption, capturedAt: date, memoryID: selectedMemoryID, tripID: selectedTripID, sha256: LifeStore.fingerprint(prepared.data), width: prepared.width, height: prepared.height, bytes: prepared.data.count); if store.addPhoto(photo, bytes: prepared.data) { saved = true; EditorDrafts.remove(draftKey); dismiss() } } }.disabled(prepared == nil || loading) } }
+            .onAppear { if !initialized { initialized = true; selectedMemoryID = memoryID; selectedTripID = tripID
+                if let d = EditorDrafts.value(draftKey,as:PhotoEditorDraft.self) { caption = d.caption; date = d.date; selectedMemoryID = d.memoryID; selectedTripID = d.tripID; if let bytes = d.jpeg,let w = d.width,let h = d.height,bytes.count <= 2_000_000,PhotoProcessor.isSanitizedJPEG(bytes,width:w,height:h) { prepared = PreparedPhoto(data:bytes,width:w,height:h) } }
+            } }
+            .retainingDraft(draftKey,fields:EditorDrafts.fields(draft),active:initialized && !saved && (prepared != nil || !caption.isEmpty))
             .task(id: selection) {
-                prepared = nil; issue = nil
-                guard let selection else { return }; loading = true; defer { loading = false }
+                guard let selection else { return }; prepared = nil; issue = nil; loading = true; defer { loading = false }
                 do {
                     guard let bytes = try await selection.loadTransferable(type: Data.self) else { throw LifeError.invalidValue }
                     let result = try await Task.detached(priority: .userInitiated) { try PhotoProcessor.prepare(bytes) }.value

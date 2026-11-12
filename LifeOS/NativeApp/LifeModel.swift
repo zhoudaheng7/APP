@@ -160,11 +160,12 @@ struct LifeSnapshot: Codable {
     var collectionWindows: [CollectionWindow] = []
     var disclosure: DisclosureSettings = .init()
     var vaultOperations: [VaultOperation] = []
+    var stories: [StoryRecord] = []
 
     init() {}
     enum CodingKeys: String, CodingKey {
         case schemaVersion, tasks, plans, sessions, goals, measurements, reviews, places, routes, pendingChanges
-        case keyResults, knownPlaces, visits, trips, photos, periodReviews, amendments, tombstones, calendarLinks, collectionWindows, disclosure, vaultOperations
+        case keyResults, knownPlaces, visits, trips, photos, periodReviews, amendments, tombstones, calendarLinks, collectionWindows, disclosure, vaultOperations, stories
     }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -191,6 +192,7 @@ struct LifeSnapshot: Codable {
         collectionWindows = try c.decodeIfPresent([CollectionWindow].self, forKey: .collectionWindows) ?? []
         disclosure = try c.decodeIfPresent(DisclosureSettings.self, forKey: .disclosure) ?? .init()
         vaultOperations = try c.decodeIfPresent([VaultOperation].self, forKey: .vaultOperations) ?? []
+        stories = try c.decodeIfPresent([StoryRecord].self,forKey:.stories) ?? []
         if version == 1 {
             // Deterministic, identity-preserving migration of the original one-metric goal.
             keyResults = goals.map { LifeKeyResult(id: $0.id, objectiveID: $0.id, title: $0.title, baseline: 0, target: $0.target, unit: $0.unit) }

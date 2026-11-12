@@ -153,6 +153,8 @@ struct VaultOperation: Codable, Identifiable {
 
 extension LifeSnapshot {
     func validateV2() throws {
+        guard stories.count <= 100,Set(stories.map(\.id)).count == stories.count,try JSONEncoder().encode(stories).count <= 20 * 1024 * 1024 else { throw LifeError.message("故事快照总量超过20MB。") }
+        for story in stories { try story.validate() }
         func unique(_ values: [UUID]) -> Bool { Set(values).count == values.count }
         func finite(_ date: Date) -> Bool { date.timeIntervalSince1970.isFinite && abs(date.timeIntervalSince1970) < 253_402_300_800 }
         guard photos.count <= 1000, photos.allSatisfy({ (1...2_000_000).contains($0.bytes) }), photos.reduce(0, { $0 + $1.bytes }) <= 64 * 1024 * 1024,
@@ -197,7 +199,7 @@ extension LifeSnapshot {
               collectionWindows.allSatisfy({ finite($0.start) && ($0.end == nil || $0.end! >= $0.start) }),
               routes.allSatisfy({ route in zip(route.points, route.points.dropFirst()).allSatisfy { pair in pair.0.at <= pair.1.at && pair.0.segment <= pair.1.segment } }) else { throw LifeError.invalidValue }
         let live: [String:Set<UUID>] = ["task":Set(tasks.map(\.id)),"plan":Set(plans.filter { !$0.isCommitment }.map(\.id)),"commitment":Set(plans.filter(\.isCommitment).map(\.id)),"actual":Set(sessions.map(\.id)),"review":Set(reviews.map(\.id)),"memory":Set(places.map(\.id)),"photo":Set(photos.map(\.id)),"visit":Set(visits.map(\.id)),"route":Set(routes.map(\.id)),"trip":Set(trips.map(\.id)),"known-place":Set(knownPlaces.map(\.id)),"goal":Set(goals.map(\.id)),"kr":Set(keyResults.map(\.id)),"measurement":Set(measurements.map(\.id)),"period-review":Set(periodReviews.map(\.id))]
-        guard tombstones.allSatisfy({ live[$0.kind]?.contains($0.id) == false }) else { throw LifeError.message("删除记录不能被旧编辑或回调复活，原数据保留。") }
+        guard tombstones.allSatisfy({ marker in marker.kind == "story" ? !stories.contains { $0.id == marker.id } : live[marker.kind]?.contains(marker.id) == false }) else { throw LifeError.message("删除记录不能被旧编辑或回调复活，原数据保留。") }
     }
     func currentMeasurement(for keyResultID: UUID) -> LifeMeasurement? {
         measurements.filter { ($0.keyResultID ?? $0.goalID) == keyResultID && $0.rejectedAt == nil }.max {
@@ -208,8 +210,12 @@ extension LifeSnapshot {
     }
     func progress(for keyResult: LifeKeyResult) -> Double? {
         guard let value = currentMeasurement(for: keyResult.id)?.value else { return nil }
-        let scale = max(1,abs(value),abs(keyResult.baseline),abs(keyResult.target))
-        return min(1, max(0, (value / scale - keyResult.baseline / scale) / (keyResult.target / scale - keyResult.baseline / scale)))
+        let baseline = keyResult.baseline, target = keyResult.target
+        if target > baseline { if value <= baseline { return 0 }; if value >= target { return 1 } }
+        else { if value >= baseline { return 0 }; if value <= target { return 1 } }
+        let delta = target - baseline, offset = value - baseline
+        if delta.isFinite && offset.isFinite { return min(1,max(0,offset / delta)) }
+        return min(1,max(0,(value / 2 - baseline / 2) / (target / 2 - baseline / 2)))
     }
     func objectiveProgress(_ id: UUID) -> Double? {
         let children = keyResults.filter { $0.objectiveID == id && !$0.archived }

@@ -14,10 +14,12 @@ struct MemoriesView: View {
     var body: some View {
         List {
             Section {
+                NavigationLink { StoryListView() } label: { Label("制作自己的故事与PDF",systemImage:"book.pages") }
+                NavigationLink { MemoryHistoryView() } label: { Label("往日与年度回看",systemImage:"calendar.badge.clock") }
                 VStack(alignment: .leading, spacing: 8) {
                     Text("生活不只是一张清单。") .font(.title2.bold())
                     Text("去过的地方、认真投入的时间，\n还有那些想记住的普通日子。") .foregroundStyle(.secondary)
-                    HStack(spacing: 25) { Label("\(store.data.reviews.count) 天复盘", systemImage: "book.closed"); Label("\(store.data.places.count) 处记忆", systemImage: "mappin.and.ellipse") }.font(.caption).foregroundStyle(.teal)
+                    HStack(spacing: 25) { Label("\(store.data.reviews.filter { $0.canonical != false }.count) 天复盘", systemImage: "book.closed"); Label("\(store.data.places.count) 处记忆", systemImage: "mappin.and.ellipse") }.font(.caption).foregroundStyle(.teal)
                 }.padding(.vertical, 12)
             }.listRowBackground(Color.teal.opacity(0.07))
             Section {
@@ -37,7 +39,7 @@ struct MemoriesView: View {
                 if reviews.isEmpty { ContentUnavailableView("值得记住的，就写下来", systemImage: "sparkles", description: Text("不必完成目标，也可以记录生活。")) }
                 ForEach(reviews) { review in
                     NavigationLink { ReviewDetailView(reviewID: review.id) } label: {
-                        VStack(alignment: .leading, spacing: 7) { Text(review.day).font(.headline); Text(review.reflection).font(.subheadline).foregroundStyle(.secondary).lineLimit(3) }.padding(.vertical, 5)
+                        VStack(alignment: .leading, spacing: 7) { Text(review.day + (review.canonical == false ? " · 保留的附加草稿" : "")).font(.headline); Text(review.reflection).font(.subheadline).foregroundStyle(.secondary).lineLimit(3) }.padding(.vertical, 5)
                     }
                 }
             }

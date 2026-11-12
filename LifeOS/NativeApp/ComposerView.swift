@@ -75,7 +75,7 @@ struct ComposerView: View {
                 end = start.addingTimeInterval(3600)
                 if case .goal = kind { end = cal.date(byAdding: .month, value: 3, to: Date()) ?? end }
                 goalID = initialGoalID; taskID = initialTaskID; placeID = initialPlaceID; title = prefilledTitle
-                if let draft = EditorDrafts.load(draftKey) {
+                if let draft = EditorDrafts.load(draftKey) ?? EditorDrafts.load(legacyDraftKey) {
                     title = draft["title"] ?? title; note = draft["note"] ?? ""; value = draft["value"] ?? ""; unit = draft["unit"] ?? "次"
                     goalID = draft["goalID"].flatMap(UUID.init(uuidString:)) ?? initialGoalID; taskID = draft["taskID"].flatMap(UUID.init(uuidString:)) ?? initialTaskID
                     if let value = draft["placeID"] { placeID = UUID(uuidString: value) }
@@ -88,7 +88,8 @@ struct ComposerView: View {
         }.presentationDetents([.large])
     }
     func titleField(_ placeholder: String) -> some View { TextField(placeholder, text: $title, axis: .vertical).font(.title3).lineLimit(1...3).focused($titleFocused).accessibilityIdentifier("composerTitle") }
-    var draftKey: String { kind.id + (initialGoalID.map { ":" + $0.uuidString } ?? "") + (initialTaskID.map { ":" + $0.uuidString } ?? "") + (initialPlaceID.map { ":" + $0.uuidString } ?? "") + (prefilledTitle.isEmpty ? "" : ":" + LifeStore.fingerprint(Data(prefilledTitle.utf8))) }
+    var legacyDraftKey: String { kind.id + (initialGoalID.map { ":" + $0.uuidString } ?? "") + (initialTaskID.map { ":" + $0.uuidString } ?? "") + (initialPlaceID.map { ":" + $0.uuidString } ?? "") + (prefilledTitle.isEmpty ? "" : ":" + LifeStore.fingerprint(Data(prefilledTitle.utf8))) }
+    var draftKey: String { "compose:" + legacyDraftKey }
     var placePicker: some View { Section { Picker("关联地点", selection: $placeID) { Text("不关联地点").tag(UUID?.none); ForEach(store.data.knownPlaces) { Text($0.title).tag(Optional($0.id)) } }; Text("这是未来打算，不会被算作到过这里。") .font(.caption).foregroundStyle(.secondary) } }
     var taskPicker: some View { Picker("关联任务", selection: $taskID) { Text("独立记录").tag(UUID?.none); ForEach(store.data.tasks.filter(\.isOpen)) { Text($0.title).tag(Optional($0.id)) } } }
     var number: Double? { decimalValue(value) }
@@ -115,6 +116,6 @@ struct ComposerView: View {
         case .measurement(let goal): success = store.addMeasurement(LifeMeasurement(goalID: goal.id, value: number!, note: note))
         case .review(let day): success = store.addReview(LifeReview(day: LifeSnapshot.dayKey(day), reflection: note.trimmingCharacters(in: .whitespacesAndNewlines), mood: mood))
         }
-        if success { saved = true; EditorDrafts.remove(draftKey); dismiss() }
+        if success { saved = true; EditorDrafts.remove(draftKey); EditorDrafts.remove(legacyDraftKey); dismiss() }
     }
 }

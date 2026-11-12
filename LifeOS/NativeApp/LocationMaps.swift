@@ -200,6 +200,7 @@ struct PlacesView: View {
                 else if center == nil { camera = .region(MKCoordinateRegion(center: CLLocationCoordinate2D(latitude: 35, longitude: 105), span: MKCoordinateSpan(latitudeDelta: 45, longitudeDelta: 60))) }
             }
             .onChange(of: location.coordinate?.latitude) { _, _ in if let coordinate = location.coordinate { camera = .region(MKCoordinateRegion(center: coordinate, span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01))); center = coordinate } }
+            .onChange(of: location.coordinate?.longitude) { _, _ in if let coordinate = location.coordinate { camera = .region(MKCoordinateRegion(center: coordinate, span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01))); center = coordinate } }
             .alert("位置暂不可用", isPresented: Binding(get: { location.error != nil }, set: { if !$0 { location.error = nil } })) { Button("知道了") { location.error = nil } } message: { Text(location.error ?? "") }
             .alert("开始记录这段路线？", isPresented: $showRouteConsent) { Button("开始记录") { location.startRoute(background: backgroundRoute) }; Button("取消", role: .cancel) {} } message: { Text(backgroundRoute ? "本段允许锁屏与后台采样。位置只存本机；不能保证系统中断或强退后继续记录。" : "本段仅前台采样，离开App或锁屏期间会留下缺口。") }
             .confirmationDialog("删除这个地点记忆？", isPresented: Binding(get: { deletePlace != nil }, set: { if !$0 { deletePlace = nil } }), titleVisibility: .visible) { Button("删除", role: .destructive) { if let p = deletePlace { store.deletePlace(p) }; deletePlace = nil }; Button("取消", role: .cancel) {} }
