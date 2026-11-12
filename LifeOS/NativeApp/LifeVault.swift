@@ -51,22 +51,37 @@ private struct PublicationPreview {
     private(set) var projectionKey: String?
     private var projectionKeys: [String:String] = [:]
     private var lastDisk = VaultDisk()
-    private var projectionCandidate: [String:Any]?
+    private var projectionCandidates: [[String:Any]] = []
+    private(set) var projectionIssues: [String] = []
     private(set) var incoming: [IncomingReview] = []
     private let store: LifeStore
-    init(store: LifeStore? = nil) {
+    private let directory: URL?
+    init(store: LifeStore? = nil, directory: URL? = nil) {
         self.store = store ?? .shared
+        self.directory = directory
         do {
-            let url = try Self.bindingURL()
+            let url = try bindingURL()
             if FileManager.default.fileExists(atPath: url.path) { binding = try JSONDecoder().decode(VaultBinding.self, from: Data(contentsOf: url)) }
         } catch { message = "已保存的目录授权无法读取，原文件未重置；请重新选择目录。" }
     }
-    private static func bindingURL() throws -> URL {
-        let root = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true).appendingPathComponent("LifeOS", isDirectory: true)
+    private func bindingURL() throws -> URL {
+        let root = try directory ?? FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true).appendingPathComponent("LifeOS", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true); return root.appendingPathComponent("VaultBinding-v2.json")
     }
     private func persistBinding(_ binding: VaultBinding) throws {
-        try JSONEncoder().encode(binding).write(to: Self.bindingURL(), options: [.atomic,.completeFileProtectionUntilFirstUserAuthentication]); self.binding = binding
+        try JSONEncoder().encode(binding).write(to: bindingURL(), options: [.atomic,.completeFileProtectionUntilFirstUserAuthentication]); self.binding = binding
+    }
+    private func pendingURL(_ binding: VaultBinding) throws -> URL { try bindingURL().deletingLastPathComponent().appendingPathComponent("PendingVaultPublication-" + binding.id.uuidString + ".json") }
+    private func pendingWrite(_ binding: VaultBinding) throws -> PendingVaultWrite? {
+        let url = try pendingURL(binding); guard FileManager.default.fileExists(atPath:url.path) else { return nil }
+        let values = try url.resourceValues(forKeys:[.fileSizeKey,.isRegularFileKey,.isSymbolicLinkKey])
+        guard values.isRegularFile == true, values.isSymbolicLink != true, (values.fileSize ?? Int.max) <= 2*1024*1024 else { throw LifeError.invalidValue }
+        let receipt = try JSONDecoder().decode(PendingVaultWrite.self,from:Data(contentsOf:url)); try receipt.validate()
+        guard receipt.bindingID == binding.id, receipt.datasetID == binding.datasetID, receipt.writerID == binding.writerID else { throw LifeError.message("恢复凭据不属于当前绑定，已保留原件。") }
+        return receipt
+    }
+    private func clearPending(_ binding: VaultBinding) throws {
+        let url = try pendingURL(binding); if FileManager.default.fileExists(atPath:url.path) { _ = try pendingWrite(binding); try FileManager.default.removeItem(at:url) }
     }
     private func root() throws -> URL {
         guard let binding else { throw LifeError.message("请先在文件选择器中主动选择Vault目录。") }
@@ -90,7 +105,7 @@ private struct PublicationPreview {
             var next = (!newDataset ? binding : nil) ?? VaultBinding(bookmark: bookmark, datasetID: settings.datasetID, writerID: settings.writerID)
             next.bookmark = bookmark; try persistBinding(next)
             if store.commit(kind: "vault.bind", id: next.id, { $0.disclosure = settings; $0.disclosure.enabled = true; $0.disclosure.approvedAt = Date() }) {
-                runtime = try WireRuntime(); verifiedCommit = nil; projectionKey = nil; projectionCandidate = nil
+                runtime = try WireRuntime(); verifiedCommit = nil; projectionKey = nil; projectionKeys = [:]; projectionCandidates = []; projectionIssues = []; publicationCandidate = nil
                 message = "已绑定你选择的目录。尚未向Vault发布任何事实，先预览内容。"
             }
         } catch { message = error.localizedDescription }
@@ -105,17 +120,25 @@ private struct PublicationPreview {
         guard !busy, let binding else { return }; busy = true; publicationCandidate = nil; previewRecords = []; defer { busy = false }
         do {
             let root = try root(), access = root.startAccessingSecurityScopedResource(); defer { if access { root.stopAccessingSecurityScopedResource() } }
-            let disk = try await Task.detached { try VaultFiles.disk(root:root) }.value
+            let pending = try pendingWrite(binding)
+            if let pending { _ = try await Task.detached { try VaultFiles.recoverUncommitted(root:root,receipt:pending) }.value }
+            var disk = try await Task.detached { try VaultFiles.disk(root:root,includeLarge:false) }.value
+            let engine = try runtime ?? WireRuntime(); runtime = engine
+            if !disk.commits.isEmpty {
+                let needed = try engine.call("member-paths",["commits":disk.commits,"files":disk.files,"datasetID":binding.datasetID.wire])
+                guard let paths = needed["paths"] as? [String] else { throw LifeError.invalidValue }
+                let thin = disk; disk = try await Task.detached { try VaultFiles.loadMembers(root:root,disk:thin,paths:paths) }.value
+            }
             guard store.refreshForExternalUse() else { throw LifeError.message("本机数据未能重新核对，未准备发布。") }
             let state = store.data, settings = state.disclosure
             guard settings.enabled, settings.datasetID == binding.datasetID, settings.writerID == binding.writerID else { throw LifeError.message("目录绑定与本机发布身份不一致，请重新绑定。") }
-            let engine = try runtime ?? WireRuntime(); runtime = engine
             if disk.commits.isEmpty && settings.lastCommitID != nil { throw LifeError.message("这个目录尚未包含本机已经发布的账本，请等待同步；不要自动另建或覆盖。") }
             if !disk.commits.isEmpty {
                 let verified = try engine.call("verify",["commits":disk.commits,"files":disk.files,"datasetID":settings.datasetID.wire])
                 guard verified["status"] as? String == "promoted" else { throw LifeError.message("原同步账本校验失败，未覆盖。") }
                 if let floor = settings.lastCommitID, !(verified["ancestry"] as? [String] ?? []).contains(floor) { throw LifeError.message("目录尚未包含本机最近的发布记录，已阻止旧同步覆盖。") }
             }
+            if pending != nil { try clearPending(binding) }
             let selectedIDs = Set((settings.grants ?? []).filter { $0.entityType == "ActualSession" }.map(\.entityID))
             guard !state.sessions.contains(where:{ selectedIDs.contains($0.id) && $0.restorePending == true && $0.end == nil }) else { throw LifeError.message("先核对已选实际记录中恢复的未结束计时，再披露它。") }
             let now = Date(), start = Calendar.current.date(byAdding:.day,value:-30,to:now)!, end = Calendar.current.date(byAdding:.day,value:3,to:now)!
@@ -140,6 +163,11 @@ private struct PublicationPreview {
             guard let engine = runtime, let commit = candidate["commit"] as? [String:Any], let commitID = commit["commitID"] as? String, let commitPath = candidate["commitPath"] as? String else { throw LifeError.invalidValue }
             let root = try root(), access = root.startAccessingSecurityScopedResource(); defer { if access { root.stopAccessingSecurityScopedResource() } }
             let files = prepared.files, expected = Set(prepared.disk.commits)
+            guard try pendingWrite(binding) == nil else { throw LifeError.message("上次发布尚待恢复，请重新完整预览。") }
+            let receipt = PendingVaultWrite(bindingID:binding.id,datasetID:binding.datasetID,writerID:binding.writerID,commitPath:commitPath,fileHashes:files.mapValues(hashBytes),parentHashes:prepared.disk.commits.map { hashBytes(Data(base64Encoded:$0)!) })
+            try receipt.validate(); let receiptBytes = try JSONEncoder().encode(receipt)
+            guard receiptBytes.count <= 2*1024*1024 else { throw LifeError.invalidValue }
+            try receiptBytes.write(to:pendingURL(binding),options:[.atomic,.completeFileProtectionUntilFirstUserAuthentication])
             try await Task.detached { try VaultFiles.writePublication(root:root,files:files,commitPath:commitPath,expectedCommits:expected,datasetID:settings.datasetID.wire,commitID:commitID) }.value
             _ = try engine.call("adopt",["commitID":commitID]); verifiedCommit = commit; projectionKey = candidate["projectionKey"] as? String; projectionKeys = candidate["projectionKeys"] as? [String:String] ?? [:]
             var published = prepared.disk; published.commits.append(files[commitPath]!.base64EncodedString()); published.files.merge(files.mapValues { $0.base64EncodedString() }) { _,new in new }; lastDisk = published
@@ -147,37 +175,51 @@ private struct PublicationPreview {
                 message = "预览的完整授权视图已发布。配套插件校验后替换当前视图；受管笔记块须另行核对并更新，外部/离线副本不会被自动抹去。"
                 if (try? publicFingerprint(binding)) != prepared.sourceFingerprint { message += " 发布过程中又有修改，后来的选择尚未发布，请重新预览。" }
             } else { message = "同步代已发布，但本机发布回执保存失败；请先重新读取，不要更换数据集。" }
-            publicationCandidate = nil; projectionCandidate = nil
+            publicationCandidate = nil; projectionCandidates = []; projectionIssues = []
+            try clearPending(binding)
         } catch { message = error.localizedDescription + " 若文件提供方曾中断，请重新读取核对提交状态；不要把失败当作撤回完成。" }
     }
     func setProjection(_ enabled: Bool) {
         guard !busy, var next = binding, next.projectionEnabled != enabled else { return }
         guard next.projectionEpoch < 9_007_199_254_740_991 else { message = "发布配置计数达到上限，原配置保留。"; return }
         next.projectionEnabled = enabled; next.projectionEpoch += 1
-        do { try persistBinding(next); projectionCandidate = nil; message = "笔记派生块设置已更改；重新发布同步代后才生效。" } catch { message = "设置未能保存，原授权不变。" }
+        do { try persistBinding(next); projectionCandidates = []; publicationCandidate = nil; message = "笔记派生块设置已更改；重新发布同步代后才生效。" } catch { message = "设置未能保存，原授权不变。" }
     }
     func prepareProjection() async {
-        guard !busy, let binding, binding.projectionEnabled, let engine = runtime, let commit = verifiedCommit, let head = commit["commitID"] as? String, let projectionKey else { message = "请先开启派生块并发布新的完整同步代。"; return }
+        guard !busy, let binding, binding.projectionEnabled, let engine = runtime, let commit = verifiedCommit, let head = commit["commitID"] as? String, !projectionKeys.isEmpty else { message = "请先开启派生块并发布新的完整同步代。"; return }
         busy = true; defer { busy = false }
+        projectionCandidates = []; projectionIssues = []
         do {
             let root = try root(), access = root.startAccessingSecurityScopedResource(); defer { if access { root.stopAccessingSecurityScopedResource() } }
-            let notes = try await Task.detached { try VaultFiles.noteSnapshot(root: root) }.value
-            var input: [String:Any] = ["head":head,"projectionKey":projectionKey,"writerID":store.data.disclosure.writerID.wire,"notes":notes]
-            let today = LifeSnapshot.dayKey(Date()); if let map = binding.mappings[today] { input["mapping"] = ["path":map.path,"state":map.state] }
-            let candidate = try engine.call("project", input); projectionCandidate = candidate
-            message = "已核对派生块和笔记原文。点击确认写入后只更新Dayisle目录中的受管块，块外文字保留。"
-        } catch { projectionCandidate = nil; message = error.localizedDescription }
+            var notes = try await Task.detached { try VaultFiles.noteSnapshot(root: root) }.value
+            for day in projectionKeys.keys.sorted() {
+                do {
+                    var input: [String:Any] = ["head":head,"projectionKey":projectionKeys[day]!,"writerID":store.data.disclosure.writerID.wire,"notes":notes]
+                    if let map = binding.mappings[day] { input["mapping"] = ["path":map.path,"state":map.state] }
+                    let candidate = try engine.call("project",input)
+                    guard let path = candidate["path"] as? String, let bytes = candidate["bytes"] as? String else { throw LifeError.invalidValue }
+                    projectionCandidates.append(candidate); notes[path] = bytes
+                } catch { projectionIssues.append(day + "：" + error.localizedDescription) }
+            }
+            message = "已核对\(projectionCandidates.count)个受管块；另有\(projectionIssues.count)个冲突待处理。确认后更新所有已核对块，块外文字保留；有冲突的内容不会被冒称已撤回。"
+        } catch { message = error.localizedDescription }
     }
-    var projectionReady: Bool { projectionCandidate != nil }
+    var projectionReady: Bool { !projectionCandidates.isEmpty }
     func writeProjection() async {
-        guard !busy, var binding, let candidate = projectionCandidate, let path = candidate["path"] as? String, let base64 = candidate["bytes"] as? String, let bytes = Data(base64Encoded: base64), let originalHash = candidate["originalHash"] as? String, let day = candidate["dayKey"] as? String else { return }
+        guard !busy, var binding, !projectionCandidates.isEmpty else { return }
         busy = true; defer { busy = false }
+        var written = 0
         do {
             let root = try root(), access = root.startAccessingSecurityScopedResource(); defer { if access { root.stopAccessingSecurityScopedResource() } }
             let commits = Set(lastDisk.commits)
-            try await Task.detached { try VaultFiles.writeNote(root: root, relative: path, bytes: bytes, originalHash: originalHash, ledgerCommits: commits) }.value
-            binding.mappings[day] = ProjectionMapping(path: path); try persistBinding(binding); projectionCandidate = nil; message = "派生块已写入。用户正文保留；修改块内文字后，下一次更新会先报告冲突。"
-        } catch { message = error.localizedDescription }
+            for candidate in projectionCandidates {
+                guard let path = candidate["path"] as? String, let base64 = candidate["bytes"] as? String, let bytes = Data(base64Encoded:base64), let originalHash = candidate["originalHash"] as? String, let day = candidate["dayKey"] as? String else { throw LifeError.invalidValue }
+                try await Task.detached { try VaultFiles.writeNote(root:root,relative:path,bytes:bytes,originalHash:originalHash,ledgerCommits:commits) }.value
+                binding.mappings[day] = ProjectionMapping(path:path); try persistBinding(binding); written += 1
+            }
+            projectionCandidates = []
+            message = projectionIssues.isEmpty ? "所有已登记受管块已更新到当前授权视图，块外文字保留。外部、手改或离线副本不作抹去承诺。":"已更新\(written)个安全受管块；仍有\(projectionIssues.count)个冲突未清理，请逐项处理。"
+        } catch { projectionCandidates = Array(projectionCandidates.dropFirst(written)); message = "已更新\(written)个块，其余未完成：" + error.localizedDescription }
     }
     func scanRequests() async {
         guard !busy, binding != nil else { return }; busy = true; defer { busy = false }
@@ -253,8 +295,8 @@ private struct PublicationPreview {
         guard !busy else { return }
         do {
             guard store.commit(kind: "vault.unbind", id: store.data.disclosure.datasetID, { $0.disclosure.enabled = false }) else { return }
-            let url = try Self.bindingURL(); if FileManager.default.fileExists(atPath: url.path) { try FileManager.default.removeItem(at: url) }
-            binding = nil; runtime = nil; verifiedCommit = nil; projectionCandidate = nil; incoming = []
+            let url = try bindingURL(); if FileManager.default.fileExists(atPath: url.path) { try FileManager.default.removeItem(at: url) }
+            binding = nil; runtime = nil; verifiedCommit = nil; projectionCandidates = []; projectionKeys = [:]; projectionIssues = []; incoming = []; publicationCandidate = nil
             message = "已停止后续发布并忘记目录授权。本机事实保留；Vault中已经披露的文件和插件缓存仍存在，这不是撤回历史披露。"
         } catch { message = "未能清除目录授权，本机已停止后续发布。" }
     }

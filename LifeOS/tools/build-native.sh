@@ -45,8 +45,9 @@ fi
 xcrun simctl list devices available --json > dist/simulators.json
 SIMULATOR_ID=$(python3 - <<'PY'
 import json
-devices=[d for group in json.load(open('dist/simulators.json'))['devices'].values() for d in group if d.get('isAvailable') and d['name'].startswith('iPhone')]
-devices.sort(key=lambda d:(d['name']!='iPhone 18 Pro',d['state']!='Booted',d['name']))
+devices=[dict(d,runtime=runtime) for runtime,group in json.load(open('dist/simulators.json'))['devices'].items() if '.iOS-' in runtime for d in group if d.get('isAvailable') and d['name'].startswith('iPhone')]
+def runtime_version(d): return tuple(-int(x) for x in d['runtime'].split('.iOS-')[-1].split('-'))
+devices.sort(key=lambda d:(d['state']!='Booted',runtime_version(d),d['name']!='iPhone 17 Pro',d['name']))
 assert devices,'No available iPhone Simulator'
 print(devices[0]['udid'])
 PY

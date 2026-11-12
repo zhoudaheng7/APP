@@ -53,7 +53,7 @@ enum VaultFiles {
         }
         try bytes.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
     }
-    static func disk(root: URL) throws -> VaultDisk {
+    static func disk(root: URL, includeLarge: Bool = true) throws -> VaultDisk {
         try coordinated(root, write: false) { base in
             var disk = VaultDisk()
             let exchangeURL = try path(exchange, root: base)
@@ -70,11 +70,13 @@ enum VaultFiles {
                 // Only read fixed manifests named by a strictly shaped commit filename.
                 let fields = name.split(separator: "-")
                 let manifest = "generations/" + fields[0] + "/" + fields[1] + "/generation-manifest.json"
-                let m = try read(exchange + "/" + manifest, root: base, maximum: 1024 * 1024)
+                let m = try read(exchange + "/" + manifest, root: base, maximum: 4 * 1024 * 1024)
                 disk.files[manifest] = m.base64EncodedString(); disk.totalBytes += m.count
+                guard disk.totalBytes <= budget else { throw LifeError.message("永久账本和manifest超过32MB预算，未继续读入。") }
             }
             // Contents of the newest directory are not authoritative. Include all
             // retained big generations; the strict ledger decides the unique head.
+            if includeLarge {
             let generations = try path(exchange + "/generations", root: base)
             if let enumerator = FileManager.default.enumerator(at: generations, includingPropertiesForKeys: [.isDirectoryKey,.isSymbolicLinkKey,.isRegularFileKey], options: []) {
                 var count = 0
@@ -89,6 +91,7 @@ enum VaultFiles {
                     guard disk.totalBytes <= budget else { throw LifeError.message("同步目录超过32MB，请保留当前/上一代及永久账本后再发布。") }
                 }
             }
+            }
             let hintURL = try path(exchange + "/current.json", root: base)
             if FileManager.default.fileExists(atPath: hintURL.path), let object = try? JSONSerialization.jsonObject(with: read(exchange + "/current.json", root: base, maximum: 65536)) as? [String:Any] { disk.headHint = object["commitID"] as? String }
             return disk
@@ -96,6 +99,9 @@ enum VaultFiles {
     }
     static func writePublication(root: URL, files: [String:Data], commitPath: String, expectedCommits: Set<String>, datasetID: String, commitID: String) throws {
         try coordinated(root, write: true) { base in
+            let packageBytes = files.values.reduce(0,{ $0 + $1.count })
+            guard packageBytes <= 16*1024*1024 else { throw LifeError.message("本次发布超过16MB，未写入。") }
+            _ = try inventory(root:base,reservedBytes:packageBytes)
             // Serialize publishers under the selected directory. Check ledger bytes
             // again just before COMMITTED; a changed parent is a visible failure.
             let commitsURL = try path(exchange + "/commits", root: base, createParents: true)

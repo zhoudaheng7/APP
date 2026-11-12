@@ -3236,7 +3236,7 @@ var DayislePlugin = class extends import_obsidian.Plugin {
       const ledger = protocol_exports.selectHead(commits, hints.datasetID), files = {};
       for (const id of ledger.ancestry) {
         const c = ledger.nodes.get(id);
-        const bytes = await this.read(c.manifestPath, 1024 * 1024);
+        const bytes = await this.read(c.manifestPath, 4 * 1024 * 1024);
         files[c.manifestPath] = bytes;
       }
       const manifest = strict_json_exports.parseJSON(files[ledger.head.manifestPath]).value;

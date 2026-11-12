@@ -27,10 +27,13 @@ struct VisitInboxView: View {
 struct VisitRow: View {
     @Environment(LifeStore.self) private var store
     let visit: LifeVisit
+    var timeZone: String? { visit.timeZoneSource == "user" ? visit.timeZone:nil }
+    var arrivalText: String { guard let date = visit.arrival else { return "到达时间未知" }; return recordTimeText(date,zone:timeZone) }
+    var departureText: String { guard let date = visit.departure else { return "离开时间未知" }; return recordTimeText(date,zone:timeZone) }
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
             Text(store.data.knownPlaces.first(where: { $0.id == visit.placeID })?.title ?? "尚未命名的地点").font(.headline)
-            Text((visit.arrival.map { recordTimeText($0,zone:visit.timeZoneSource == "user" ? visit.timeZone:nil) } ?? "到达时间未知") + " → " + (visit.departure.map { recordTimeText($0,zone:visit.timeZoneSource == "user" ? visit.timeZone:nil) } ?? "离开时间未知"))
+            Text(arrivalText + " → " + departureText)
                 .font(.caption).foregroundStyle(.secondary)
         }.padding(.vertical, 4)
     }

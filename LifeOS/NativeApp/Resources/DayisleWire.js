@@ -1813,6 +1813,7 @@ var DayisleWire = (() => {
     DISCLOSURE: () => DISCLOSURE,
     TYPES: () => TYPES2,
     buildPublication: () => buildPublication,
+    currentMemberPaths: () => currentMemberPaths,
     decodeInput: () => decodeInput,
     invoke: () => invoke,
     json: () => strict_json_exports,
@@ -3463,6 +3464,16 @@ var DayisleWire = (() => {
     validateSchema(parseJSON(Buffer.from(canonicalize(receipt))), "receipt.schema.json");
     return receipt;
   }
+  function manifestFor(input, c) {
+    const parsed = parseJSON(Buffer.from(input.files[c.manifestPath] ?? "", "base64")), m = validateSchema(parsed, "manifest.schema.json");
+    if (hashJSON(m) !== c.manifestHash || m.datasetID !== c.datasetID || m.writerInstanceID !== c.writerInstanceID || m.writerEpoch !== c.writerEpoch || m.generation !== c.generation) throw Error("MACHINE_MANIFEST_HASH");
+    return m;
+  }
+  function currentMemberPaths(input) {
+    const ledger = selectHead(input.commits.map((x) => Buffer.from(x, "base64")), input.datasetID), c = ledger.head, m = manifestFor(input, c);
+    if (m.entries.length > 1200) throw Error("MEMBER_COUNT_LIMIT");
+    return { head: c.commitID, paths: m.entries.map((e) => generationRoot(c) + "/" + memberPath(e)) };
+  }
   function buildPublication(seed, previous = null) {
     if (!validInstant(seed.now) || !validDay(seed.today) || !validDay(seed.startDay) || !validDay(seed.endDay) || seed.startDay >= seed.endDay) throw Error("PUBLICATION_TIME");
     if ((Date.parse(seed.endDay) - Date.parse(seed.startDay)) / 864e5 > 93) throw Error("DAY_SCOPE_LIMIT");
@@ -3506,10 +3517,14 @@ var DayisleWire = (() => {
     const days = [...dayMap].map(([dayKey, segments]) => seal2({ schemaVersion: version, datasetID: seed.datasetID, dayKey, segments }));
     const projectionDays = disclosure ? [.../* @__PURE__ */ new Set([seed.today, ...seed.projectionDays ?? []])].sort() : [seed.today];
     if (projectionDays.length > 1e3 || projectionDays.some((d) => !validDay(d))) throw Error("PROJECTION_DAY_LIMIT");
-    const payloads = projectionDays.map((day) => {
-      const body = disclosure ? renderDisclosureDay(entities, day, seed.now) : seed.body;
-      return seal2({ ...projectionIdentity({ datasetID: seed.datasetID, vaultBindingID: seed.bindingID, dayKey: day, blockRole: "daily-summary" }), datasetID: seed.datasetID, vaultBindingID: seed.bindingID, dayKey: day, blockRole: "daily-summary", blockOwner: "lifeos", projectionSchemaVersion: version, renderedMarkdown: body, renderedContentHash: sha2562(body), createIfMissing: true });
-    });
+    let publicationBytes = [snapshot, ...days].reduce((n, e) => n + Buffer.byteLength(canonicalize(e)), 0);
+    const payloads = [];
+    for (const day of projectionDays) {
+      const body = disclosure ? renderDisclosureDay(entities, day, seed.now) : seed.body, p = seal2({ ...projectionIdentity({ datasetID: seed.datasetID, vaultBindingID: seed.bindingID, dayKey: day, blockRole: "daily-summary" }), datasetID: seed.datasetID, vaultBindingID: seed.bindingID, dayKey: day, blockRole: "daily-summary", blockOwner: "lifeos", projectionSchemaVersion: version, renderedMarkdown: body, renderedContentHash: sha2562(body), createIfMissing: true });
+      publicationBytes += Buffer.byteLength(canonicalize(p));
+      if (publicationBytes > 16 * 1024 * 1024) throw Error("PUBLICATION_SIZE_LIMIT");
+      payloads.push(p);
+    }
     const generation = (previous?.commit.generation ?? 0) + 1, writerEpoch = previous?.commit.writerEpoch ?? 1;
     const configuration = { vaultBindingID: seed.bindingID, projectionWriterMode: seed.projectionEnabled ? "direct" : "disabled", projectionWriterEpoch: seed.projectionEpoch, projectionWriterInstanceID: seed.projectionEnabled ? seed.writerID : null, projectionSchemaVersion: version, projectionRootRelativePath: "Dayisle", dailyNotePathPattern: "{date}.md", dailyNotePathPatternVersion: 1 };
     const members = [snapshot, ...days, ...payloads];
@@ -3518,6 +3533,8 @@ var DayisleWire = (() => {
     if (Buffer.byteLength(canonicalize(manifest)) > 4 * 1024 * 1024) throw Error("MANIFEST_SIZE_LIMIT");
     const commit = { datasetID: seed.datasetID, writerInstanceID: seed.writerID, writerEpoch, generation, previousCommitID: previous?.commitID ?? null, manifestPath: manifestPath({ writerEpoch, generation }), manifestHash: hashJSON(manifest), committedAt: seed.now, takeover: null };
     commit.commitID = hashOmittingRoot(commit, "commitID");
+    publicationBytes += Buffer.byteLength(canonicalize(manifest)) + Buffer.byteLength(canonicalize(commit));
+    if (publicationBytes > 16 * 1024 * 1024 || days.some((d) => Buffer.byteLength(canonicalize(d)) > 1024 * 1024)) throw Error("PUBLICATION_SIZE_LIMIT");
     const files = {};
     entries.forEach((e, i) => files[generationRoot(commit) + "/" + memberPath(e)] = Buffer.from(canonicalize(members[i])).toString("base64"));
     files[commit.manifestPath] = Buffer.from(canonicalize(manifest)).toString("base64");
@@ -3531,11 +3548,46 @@ var DayisleWire = (() => {
   }
   var active = null;
   var pending = null;
+  var retirement = null;
   function invoke(operation, text) {
     try {
       const input = JSON.parse(text);
       let value;
-      if (operation === "verify") {
+      if (operation === "member-paths") {
+        value = currentMemberPaths(input);
+      } else if (operation === "retire-plan") {
+        if (!active) throw Error("RETIREMENT_NO_HEAD");
+        const ledger = selectHead(input.commits.map((x) => Buffer.from(x, "base64")), input.datasetID);
+        if (ledger.head.commitID !== active.commitID) throw Error("RETIREMENT_HEAD_CHANGED");
+        const keep = [generationRoot(ledger.head)];
+        if (ledger.head.previousCommitID) keep.push(generationRoot(ledger.nodes.get(ledger.head.previousCommitID)));
+        const existing = new Set(input.inventory), eligible = [];
+        for (const id of ledger.ancestry) {
+          const c = ledger.nodes.get(id);
+          if (keep.includes(generationRoot(c))) continue;
+          for (const e of manifestFor(input, c).entries) {
+            const path = generationRoot(c) + "/" + memberPath(e);
+            if (existing.has(path)) eligible.push({ path, contentHash: e.contentHash });
+          }
+        }
+        retirement = { head: active.commitID, keep, entries: new Map(eligible.slice(0, 512).map((e) => [e.path, e.contentHash])) };
+        value = { keep, eligibleCount: eligible.length, entries: eligible.slice(0, 512) };
+      } else if (operation === "check-retirement") {
+        if (!active || !retirement || retirement.head !== active.commitID || input.files.length > 512) throw Error("RETIREMENT_HEAD_CHANGED");
+        let total = 0;
+        const seen = /* @__PURE__ */ new Set(), files = [];
+        for (const f of input.files) {
+          if (seen.has(f.path) || !retirement.entries.has(f.path)) throw Error("RETIREMENT_UNOWNED_FILE");
+          seen.add(f.path);
+          const bytes = Buffer.from(f.bytes, "base64");
+          total += bytes.length;
+          if (total > 32 * 1024 * 1024) throw Error("RETIREMENT_BUDGET");
+          const e = parseJSON(bytes).value, expected = retirement.entries.get(f.path);
+          if (e.contentHash !== expected || hashOmittingRoot(e, "contentHash") !== expected) throw Error("RETIREMENT_CHANGED_FILE");
+          files.push({ path: f.path, sha256: sha2562(bytes) });
+        }
+        value = { keep: retirement.keep, files, contentBytes: total };
+      } else if (operation === "verify") {
         const result = verify(input, active);
         if (result.status === "promoted") active = result.verified;
         value = result.status === "promoted" ? { status: result.status, snapshot: active.snapshot, commit: active.commit, manifest: active.manifest, ancestry: active.ancestry } : { status: result.status, code: result.code };
@@ -3546,6 +3598,7 @@ var DayisleWire = (() => {
         if (!pending || pending.commit.commitID !== input.commitID) throw Error("PENDING_HEAD_CHANGED");
         active = pending.verified;
         pending = null;
+        retirement = null;
         value = { commit: active.commit };
       } else if (operation === "project") {
         if (!active || active.commitID !== input.head) throw Error("PROJECTION_HEAD");

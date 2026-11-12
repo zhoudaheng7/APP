@@ -30,6 +30,7 @@ struct VaultSettingsView: View {
                     Text("开启后先发布新同步代，再核对和确认写入。只更新自己的标记块；块外文字保留。块被手改、重复或移走时会阻断，避免覆盖或复制你的内容。") .font(.caption).foregroundStyle(.secondary)
                     Button("核对派生块和笔记原文") { Task { await service.prepareProjection() } }.disabled(service.busy)
                     if service.projectionReady { Button("确认写入已核对的派生块") { Task { await service.writeProjection() } }.disabled(service.busy) }
+                    ForEach(Array(service.projectionIssues.enumerated()),id:\.offset) { _,issue in Text(issue).font(.caption).foregroundStyle(.orange).textSelection(.enabled) }
                 }
                 Section("插件与复盘草稿") {
                     Button("安装或更新此Vault的朝屿插件") { Task { await service.installPlugin() } }.disabled(service.busy)
