@@ -52,7 +52,7 @@ struct LifeRootView: View {
 
 struct NativeTabChrome: ViewModifier {
     @ViewBuilder func body(content: Content) -> some View {
-        if #available(iOS 26, *) { content.tabBarMinimizeBehavior(.onScrollDown) } else { content }
+        if #available(iOS 26, *) { content.tabBarMinimizeBehavior(.never) } else { content }
     }
 }
 

@@ -53,7 +53,7 @@ struct MemoriesView: View {
                 ForEach(store.data.tasks.filter { $0.completedAt != nil }.prefix(30)) { task in NavigationLink { TaskDetailView(taskID: task.id) } label: { Label(task.title, systemImage: "checkmark.circle.fill").foregroundStyle(.teal) } }
                 if !store.data.tasks.contains(where: { $0.completedAt != nil }) { Text("每一件完成的小事，都值得被看见。") .foregroundStyle(.secondary) }
             }
-        }.navigationTitle("记忆").searchable(text: $search, prompt: "寻找某一天、某一句话")
+        }.navigationTitle("记忆").searchable(text:$search,placement:.navigationBarDrawer(displayMode:.always),prompt:"寻找某一天、某一句话")
             .toolbar { Menu { Button("写今日复盘", systemImage: "square.and.pencil") { composer = .review(Date()) }; Button("新建行程", systemImage: "suitcase") { newTrip = true }; Button("添加一张照片", systemImage: "photo.badge.plus") { addPhoto = true } } label: { Image(systemName: "plus") }.accessibilityLabel("新建记忆") }
             .sheet(item: $composer) { ComposerView(kind: $0) }
             .sheet(isPresented: $newTrip) { NewTripView() }
