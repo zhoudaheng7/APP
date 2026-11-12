@@ -38,6 +38,7 @@ struct LifeVisit: Codable, Identifiable, Equatable {
     var state = "inferred"
     var note = ""
     var revision: Int64 = 1
+    var timeZoneSource: String?
 }
 struct RouteGap: Codable, Equatable {
     var from: Date
@@ -55,6 +56,7 @@ struct LifeTrip: Codable, Identifiable, Equatable {
     var memoryIDs: [UUID] = []
     var favorite = false
     var revision: Int64 = 1
+    var timeZone: String? = TimeZone.current.identifier
 }
 struct LifePhoto: Codable, Identifiable, Equatable {
     var id = UUID()
@@ -158,7 +160,7 @@ extension LifeSnapshot {
         for route in routes { dates.append(route.start); if let end = route.end { dates.append(end) }; for point in route.points { dates.append(point.at) } }
         for visit in visits { dates.append(visit.receivedAt); if let arrival = visit.arrival { dates.append(arrival) }; if let departure = visit.departure { dates.append(departure) } }
         for place in places { dates.append(place.occurredAt) }
-        for goal in goals { dates.append(goal.due); if let start = goal.cycleStart { dates.append(start) } }
+        for goal in goals { dates.append(goal.due); if let start = goal.cycleStart { guard start <= goal.due else { throw LifeError.invalidValue }; dates.append(start) } }
         for photo in photos { dates.append(photo.capturedAt) }
         for review in reviews { dates.append(review.createdAt) }
         for review in periodReviews { dates.append(review.start); dates.append(review.end); dates.append(review.createdAt) }
@@ -168,6 +170,8 @@ extension LifeSnapshot {
         revisions.append(contentsOf: knownPlaces.map(\.revision)); revisions.append(contentsOf: visits.map(\.revision)); revisions.append(contentsOf: trips.map(\.revision)); revisions.append(contentsOf: periodReviews.map(\.revision))
         guard revisions.allSatisfy({ (1...9_007_199_254_740_991).contains($0) }), (0...9_007_199_254_740_991).contains(disclosure.lastSequence),
               routes.allSatisfy({ $0.points.allSatisfy { point in (0...9_007_199_254_740_991).contains(point.segment) && (point.accuracy == nil || (point.accuracy!.isFinite && point.accuracy! >= 0)) } }) else { throw LifeError.message("记录计数或采样信息无效，原数据已保留。") }
+        let zones = plans.map(\.timeZone) + sessions.map(\.timeZone) + reviews.map(\.timeZone) + places.compactMap(\.timeZone) + routes.compactMap(\.timeZone) + trips.compactMap(\.timeZone)
+        guard zones.allSatisfy({ TimeZone(identifier:$0) != nil }), visits.allSatisfy({ $0.timeZoneSource == nil || ($0.timeZoneSource == "user" && TimeZone(identifier:$0.timeZone) != nil) }) else { throw LifeError.invalidValue }
         guard dates.allSatisfy(finite), calendarLinks.allSatisfy({ link in plans.contains { $0.id == link.planID } }),
               collectionWindows.allSatisfy({ finite($0.start) && ($0.end == nil || $0.end! >= $0.start) }),
               routes.allSatisfy({ route in zip(route.points, route.points.dropFirst()).allSatisfy { pair in pair.0.at <= pair.1.at && pair.0.segment <= pair.1.segment } }) else { throw LifeError.invalidValue }
@@ -204,6 +208,16 @@ extension LifeSnapshot {
     func unionActualSeconds(from start: Date, to end: Date, goalID: UUID? = nil) -> TimeInterval {
         let taskIDs = Set(tasks.filter { $0.goalID == goalID }.map(\.id))
         let intervals = sessions.filter { $0.confirmed && $0.deletedAt == nil && $0.end != nil && (goalID == nil || $0.taskID.map { taskIDs.contains($0) } == true) }.map { (max(start,$0.start),min(end,$0.end!)) }.filter { $0.1 > $0.0 }.sorted { $0.0 < $1.0 }
+        return unionIntervals(intervals)
+    }
+    func unionAttributedActualSeconds(day: Date) -> TimeInterval {
+        let intervals = sessions.filter { $0.confirmed && $0.deletedAt == nil && $0.end != nil }.compactMap { session -> (Date,Date)? in
+            let bounds = attributedDayBounds(day, zone:TimeZone(identifier:session.timeZone) ?? .current)
+            let pair = (max(bounds.0,session.start), min(bounds.1,session.end!)); return pair.1 > pair.0 ? pair : nil
+        }.sorted { $0.0 < $1.0 }
+        return unionIntervals(intervals)
+    }
+    private func unionIntervals(_ intervals: [(Date,Date)]) -> TimeInterval {
         var total: TimeInterval = 0; var current: (Date,Date)?
         for next in intervals {
             if let interval = current {

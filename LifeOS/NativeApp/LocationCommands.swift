@@ -53,12 +53,13 @@ extension LifeStore {
             }
         }
     }
-    func reviseVisit(_ original: LifeVisit, placeID: UUID?, arrival: Date?, departure: Date?, note: String, state factState: String) -> Bool {
+    func reviseVisit(_ original: LifeVisit, placeID: UUID?, arrival: Date?, departure: Date?, note: String, state factState: String, timeZone: String? = nil) -> Bool {
         commit(kind: "visit.review", id: original.id) { state in
             guard let i = state.visits.firstIndex(where: { $0.id == original.id }), state.visits[i].revision == original.revision else { throw LifeError.invalidReference }
             try state.audit(state.visits[i], id: original.id, kind: "visit", revision: original.revision)
             state.visits[i].placeID = placeID; state.visits[i].arrival = arrival; state.visits[i].departure = departure
             state.visits[i].note = note; state.visits[i].state = factState; state.visits[i].revision += 1
+            state.visits[i].timeZoneSource = timeZone == nil ? nil : "user"; if let timeZone { state.visits[i].timeZone = timeZone }
         }
     }
     func deleteVisit(_ visit: LifeVisit) {
@@ -79,10 +80,11 @@ extension LifeStore {
             if let i = state.routes.firstIndex(where: { $0.id == route.id }) { state.routes[i].gaps = (state.routes[i].gaps ?? []) + [RouteGap(from: date, reason: reason)] }
         }
     }
-    func saveRoute(_ original: LifeRoute, title: String, note: String, transport: String, tripID: UUID?) -> Bool {
+    func saveRoute(_ original: LifeRoute, title: String, note: String, transport: String, tripID: UUID?, purpose: String? = nil) -> Bool {
         commit(kind: "route.edit", id: original.id) { state in
-            guard let i = state.routes.firstIndex(where: { $0.id == original.id }) else { throw LifeError.invalidReference }
+            guard let i = state.routes.firstIndex(where: { $0.id == original.id }), state.routes[i] == original else { throw LifeError.message("路线已更新，请停止采集并核对后重试。") }
             state.routes[i].title = title; state.routes[i].note = note; state.routes[i].transport = transport; state.routes[i].tripID = tripID
+            state.routes[i].purpose = purpose
         }
     }
     func deleteRoute(_ route: LifeRoute) {

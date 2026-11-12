@@ -36,6 +36,7 @@ enum MediaMutation { case put(UUID, Data), remove(UUID) }
             container.loadPersistentStores { _, problem in loadingError = problem }
             if let loadingError { throw loadingError }
             container.viewContext.mergePolicy = NSMergePolicy.error
+            container.viewContext.stalenessInterval = 0
             container.viewContext.undoManager = nil
             let request = NSFetchRequest<NSManagedObject>(entityName: "LifeOSSnapshot"); request.fetchLimit = 2
             request.predicate = NSPredicate(format: "key == %@", "current")
@@ -65,6 +66,9 @@ enum MediaMutation { case put(UUID, Data), remove(UUID) }
         guard ready else { error = "本机数据尚未成功打开，暂时不能保存。"; return false }
         var candidate = data
         do {
+            // UI owns value types only. Drop registered objects and force SQLite faults
+            // to read fresh snapshots; a fetch alone may reuse the coordinator cache.
+            container.viewContext.reset(); row = nil
             let request = NSFetchRequest<NSManagedObject>(entityName: "LifeOSSnapshot"); request.fetchLimit = 2
             request.predicate = NSPredicate(format: "key == %@", "current")
             request.shouldRefreshRefetchedObjects = true; request.returnsObjectsAsFaults = false; request.includesPendingChanges = false
@@ -105,7 +109,9 @@ enum MediaMutation { case put(UUID, Data), remove(UUID) }
                 }
             }
             try container.viewContext.save()
+            let deletedIDs = Set(candidate.tombstones.filter { marker in !data.tombstones.contains { $0.id == marker.id && $0.kind == marker.kind } }.map(\.id))
             row = object; data = candidate; payloadFingerprint = Self.fingerprint(bytes)
+            if !deletedIDs.isEmpty { EditorDrafts.remove(entities: deletedIDs) }
             if !media.isEmpty { imageCache.removeAllObjects() }
             if kind.hasPrefix("plan.") || kind.hasPrefix("commitment.") || kind == "backup.restore" {
                 let reminderPlans = candidate.plans
@@ -114,6 +120,7 @@ enum MediaMutation { case put(UUID, Data), remove(UUID) }
             return true
         } catch {
             container.viewContext.rollback()
+            container.viewContext.reset(); row = nil
             self.error = error.localizedDescription
             return false
         }

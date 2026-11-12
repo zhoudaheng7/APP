@@ -31,6 +31,7 @@ struct ComposerView: View {
     @State private var mood: Int?
     @State private var saved = false
     @State private var placeID: UUID?
+    @State private var initialized = false
     @FocusState private var titleFocused: Bool
 
     var body: some View {
@@ -68,6 +69,7 @@ struct ComposerView: View {
                 ToolbarItem(placement: .confirmationAction) { Button("保存", systemImage: "checkmark", action: save).disabled(!canSave).accessibilityIdentifier("saveComposer") }
             }
             .onAppear {
+                guard !initialized else { return }; initialized = true
                 let cal = Calendar.current
                 start = cal.date(bySettingHour: cal.component(.hour, from: Date()), minute: 0, second: 0, of: initialDate) ?? initialDate
                 end = start.addingTimeInterval(3600)
@@ -76,16 +78,13 @@ struct ComposerView: View {
                 if let draft = EditorDrafts.load(draftKey) {
                     title = draft["title"] ?? title; note = draft["note"] ?? ""; value = draft["value"] ?? ""; unit = draft["unit"] ?? "次"
                     goalID = draft["goalID"].flatMap(UUID.init(uuidString:)) ?? initialGoalID; taskID = draft["taskID"].flatMap(UUID.init(uuidString:)) ?? initialTaskID
+                    if let value = draft["placeID"] { placeID = UUID(uuidString: value) }
                     if let number = draft["start"].flatMap(Double.init) { start = Date(timeIntervalSince1970: number) }
                     if let number = draft["end"].flatMap(Double.init) { end = Date(timeIntervalSince1970: number) }
                     mood = draft["mood"].flatMap(Int.init); isCommitment = draft["commitment"] == "true"
                 }
             }
-            .onDisappear {
-                if !saved && (!title.isEmpty || !note.isEmpty || !value.isEmpty) {
-                    EditorDrafts.save(draftKey, fields: ["title": title, "note": note, "value": value, "unit": unit, "start": String(start.timeIntervalSince1970), "end": String(end.timeIntervalSince1970), "goalID": goalID?.uuidString ?? "", "taskID": taskID?.uuidString ?? "", "mood": mood.map(String.init) ?? "", "commitment": String(isCommitment)])
-                }
-            }
+            .retainingDraft(draftKey, fields: ["title": title, "note": note, "value": value, "unit": unit, "start": String(start.timeIntervalSince1970), "end": String(end.timeIntervalSince1970), "goalID": goalID?.uuidString ?? "", "taskID": taskID?.uuidString ?? "", "placeID": placeID?.uuidString ?? "", "mood": mood.map(String.init) ?? "", "commitment": String(isCommitment)], active: initialized && !saved && (!title.isEmpty || !note.isEmpty || !value.isEmpty))
         }.presentationDetents([.large])
     }
     func titleField(_ placeholder: String) -> some View { TextField(placeholder, text: $title, axis: .vertical).font(.title3).lineLimit(1...3).focused($titleFocused).accessibilityIdentifier("composerTitle") }

@@ -16,19 +16,37 @@ enum PhotoProcessor {
         guard width > 0, height > 0, Double(width) * Double(height) <= 100_000_000 else { throw LifeError.message("图片像素过大。") }
         let options: [CFString: Any] = [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceThumbnailMaxPixelSize: 1600, kCGImageSourceCreateThumbnailWithTransform: true]
         guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { throw LifeError.message("无法处理这张图片。") }
+        guard let colorSpace = CGColorSpace(name:CGColorSpace.sRGB), let context = CGContext(data:nil,width:image.width,height:image.height,bitsPerComponent:8,bytesPerRow:0,space:colorSpace,bitmapInfo:CGImageAlphaInfo.premultipliedLast.rawValue) else { throw LifeError.invalidValue }
+        context.setFillColor(CGColor(srgbRed:1,green:1,blue:1,alpha:1)); context.fill(CGRect(x:0,y:0,width:image.width,height:image.height))
+        context.draw(image,in:CGRect(x:0,y:0,width:image.width,height:image.height))
+        guard let normalized = context.makeImage() else { throw LifeError.invalidValue }
         let output = NSMutableData()
         guard let destination = CGImageDestinationCreateWithData(output, UTType.jpeg.identifier as CFString, 1, nil) else { throw LifeError.invalidValue }
         // Encode only decoded pixels. No source metadata, GPS, filename or EXIF is copied.
-        CGImageDestinationAddImage(destination, image, [kCGImageDestinationLossyCompressionQuality: 0.75] as CFDictionary)
+        CGImageDestinationAddImage(destination, normalized, [kCGImageDestinationLossyCompressionQuality: 0.75] as CFDictionary)
         guard CGImageDestinationFinalize(destination), output.length <= 2_000_000 else { throw LifeError.message("处理后的照片仍超过2MB，未保存。") }
         return PreparedPhoto(data: output as Data, width: image.width, height: image.height)
     }
     static func isSanitizedJPEG(_ bytes: Data, width: Int, height: Int) -> Bool {
         guard let source = CGImageSourceCreateWithData(bytes as CFData, nil), CGImageSourceGetType(source) as String? == UTType.jpeg.identifier,
               let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
-              props[kCGImagePropertyGPSDictionary] == nil, props[kCGImagePropertyExifDictionary] == nil,
+              props[kCGImagePropertyGPSDictionary] == nil,
               props[kCGImagePropertyExifAuxDictionary] == nil, props[kCGImagePropertyIPTCDictionary] == nil, props[kCGImagePropertyTIFFDictionary] == nil,
               props[kCGImagePropertyPixelWidth] as? Int == width, props[kCGImagePropertyPixelHeight] as? Int == height else { return false }
+        let allowed: Set<String> = ["ColorModel","Depth","PixelWidth","PixelHeight","ProfileName","{JFIF}","{Exif}","Orientation"]
+        guard Set(props.keys.map { $0 as String }).isSubset(of:allowed), (props[kCGImagePropertyDepth] as? Int) == 8,
+              (props[kCGImagePropertyColorModel] as? String) == "RGB",
+              (props[kCGImagePropertyOrientation] as? Int ?? 1) == 1,
+              ["sRGB IEC61966-2.1","sRGB"].contains(props[kCGImagePropertyProfileName] as? String ?? "") else { return false }
+        if let exif = props[kCGImagePropertyExifDictionary] as? [String:Any] {
+            guard Set(exif.keys).isSubset(of:["ColorSpace","PixelXDimension","PixelYDimension"]),
+                  (exif["ColorSpace"] as? Int ?? 1) == 1,
+                  (exif["PixelXDimension"] as? Int ?? width) == width,
+                  (exif["PixelYDimension"] as? Int ?? height) == height else { return false }
+        }
+        if let jfif = props[kCGImagePropertyJFIFDictionary] as? [String:Any] {
+            guard Set(jfif.keys).isSubset(of:["DensityUnit","JFIFVersion","XDensity","YDensity"]) else { return false }
+        }
         return true
     }
 }
@@ -110,10 +128,15 @@ struct MemoryDetailView: View {
     @State private var addPhoto = false
     @State private var delete = false
     @State private var initialized = false
+    @State private var original: LifePlace?
     var memory: LifePlace? { store.data.places.first { $0.id == memoryID } }
+    var draftKey: String { "memory:" + memoryID.uuidString }
+    var edited: LifePlace? { guard var value = original else { return nil }; value.title = title; value.note = note; value.people = aliases(people); value.occurredAt = date; value.favorite = favorite; value.tripID = tripID; value.knownPlaceID = knownID; return value }
+    var draftFields: [String:String] { guard let original, let edited else { return [:] }; return EditorDrafts.fields(RecordDraft(original: original, edited: edited)) }
     var body: some View {
         if let memory {
             Form {
+                EditorConflictNotice(changed: original.map { $0 != memory } ?? false, current: memory.title + "\n" + memory.note + "\n" + memory.occurredAt.formatted()) { original = memory }
                 Section { TextField("记忆标题", text: $title, axis: .vertical); DatePicker("记忆时间", selection: $date); TextField("当时的故事", text: $note, axis: .vertical).lineLimit(5...15); TextField("人物别名，用逗号分开", text: $people); Toggle("收藏这段记忆", isOn: $favorite) }
                 Section("关联") {
                     Picker("稳定地点", selection: $knownID) { Text("独立地点记忆").tag(UUID?.none); ForEach(store.data.knownPlaces) { Text($0.title).tag(Optional($0.id)) } }
@@ -123,12 +146,43 @@ struct MemoryDetailView: View {
                 Section("照片") { PhotoStrip(photos: store.data.photos.filter { $0.memoryID == memoryID }); Button("添加一张照片", systemImage: "photo.badge.plus") { addPhoto = true } }
                 Section { Text("手动记忆不会被当作自动到访或统计为去过的城市；人物仅为你填写的别名。") .font(.caption).foregroundStyle(.secondary); Button("删除这段记忆及其照片副本", role: .destructive) { delete = true } }
             }.navigationTitle("生活记忆").navigationBarTitleDisplayMode(.inline)
-                .toolbar { Button("保存") { if store.saveMemory(memory, title: title, note: note, favorite: favorite, tripID: tripID, people: aliases(people), occurredAt: date, knownPlaceID: knownID) { EditorDrafts.remove("memory:" + memoryID.uuidString) } }.disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) }
-                .onAppear { if !initialized { initialized = true; title = memory.title; note = memory.note; people = (memory.people ?? []).joined(separator: "，"); date = memory.occurredAt; favorite = memory.favorite ?? false; tripID = memory.tripID; knownID = memory.knownPlaceID; if let draft = EditorDrafts.load("memory:" + memoryID.uuidString) { title = draft["title"] ?? title; note = draft["note"] ?? note; people = draft["people"] ?? people } } }
-                .onDisappear { if let saved = self.memory, saved.title != title || saved.note != note || (saved.people ?? []) != aliases(people) { EditorDrafts.save("memory:" + memoryID.uuidString, fields: ["title": title, "note": note, "people": people]) } }
+                .toolbar { Button("保存") { if store.saveMemory(original ?? memory, title: title, note: note, favorite: favorite, tripID: tripID, people: aliases(people), occurredAt: date, knownPlaceID: knownID) { original = self.memory; EditorDrafts.remove(draftKey) } }.disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) }
+                .onAppear { if !initialized { initialized = true; let saved = EditorDrafts.value(draftKey, as: RecordDraft<LifePlace>.self); original = saved?.original ?? memory; let value = saved?.edited ?? memory; title = value.title; note = value.note; people = (value.people ?? []).joined(separator: "，"); date = value.occurredAt; favorite = value.favorite ?? false; tripID = value.tripID; knownID = value.knownPlaceID; if saved == nil, let draft = EditorDrafts.load(draftKey) { title = draft["title"] ?? title; note = draft["note"] ?? note; people = draft["people"] ?? people } } }
+                .retainingDraft(draftKey, fields: draftFields, active: initialized && self.memory != nil && edited != self.memory)
                 .sheet(isPresented: $addPhoto) { AddPhotoView(memoryID: memoryID, tripID: tripID) }
                 .confirmationDialog("删除这段记忆和其照片副本？", isPresented: $delete, titleVisibility: .visible) { Button("删除", role: .destructive) { store.deletePlace(memory); dismiss() }; Button("取消", role: .cancel) {} } message: { Text("原始到访、路线、行程和系统相册原图保留。") }
         } else { ContentUnavailableView("记忆已删除", systemImage: "sparkles") }
+    }
+}
+
+struct NewMemoryView: View {
+    @Environment(LifeStore.self) private var store
+    @Environment(\.dismiss) private var dismiss
+    var seed: LifePlace
+    var contextKey: String
+    @State private var draft: LifePlace?
+    @State private var saved = false
+    var body: some View {
+        NavigationStack { Group {
+            if let value = draft {
+                Form {
+                    TextField("记忆标题", text: binding(\.title, fallback: value)).accessibilityIdentifier("memoryTitle")
+                    DatePicker("记忆时间", selection: binding(\.occurredAt, fallback: value))
+                    TextField("留下当时的心情或故事", text: binding(\.note, fallback: value), axis: .vertical).lineLimit(5...12)
+                    Text("保存后可继续添加照片与关联。关闭会保留本机草稿；点击保存前，不创建记忆、到访或活动。") .font(.caption).foregroundStyle(.secondary)
+                }.retainingDraft(contextKey, fields: EditorDrafts.fields(value), active: !saved)
+            } else { ProgressView() }
+        }.navigationTitle("记住这一刻").navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) { Button("保存") {
+                    if var value = draft { value.title = value.title.trimmingCharacters(in: .whitespacesAndNewlines); if store.addPlace(value) { saved = true; EditorDrafts.remove(contextKey); dismiss() } }
+                }.disabled(draft?.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false).accessibilityIdentifier("saveMemory") }
+            }.onAppear { if draft == nil { draft = EditorDrafts.value(contextKey, as: LifePlace.self) ?? seed } }
+        }
+    }
+    func binding<Value>(_ path: WritableKeyPath<LifePlace,Value>, fallback: LifePlace) -> Binding<Value> {
+        Binding(get: { (draft ?? fallback)[keyPath:path] }, set: { draft?[keyPath:path] = $0 })
     }
 }
 

@@ -74,22 +74,26 @@ extension LifeStore {
             state.keyResults[i].unit = unit; state.keyResults[i].weight = weight; state.keyResults[i].revision += 1
         }
     }
-    func editGoal(_ original: LifeGoal, title: String, intention: String, due: Date, assessment: String) -> Bool {
+    func editGoal(_ original: LifeGoal, title: String, intention: String, due: Date, assessment: String, cycleStart: Date? = nil) -> Bool {
         commit(kind: "goal.edit", id: original.id) { state in
-            guard let i = state.goals.firstIndex(where: { $0.id == original.id }) else { throw LifeError.invalidReference }
+            guard let i = state.goals.firstIndex(where: { $0.id == original.id }), state.goals[i] == original else { throw LifeError.message("方向已更新，请核对后重试。") }
             try state.audit(state.goals[i], id: original.id, kind: "goal", revision: original.revision ?? 1)
             state.goals[i].title = title; state.goals[i].intention = intention; state.goals[i].due = due
-            state.goals[i].assessment = assessment; state.goals[i].revision = (original.revision ?? 1) + 1
+            state.goals[i].assessment = assessment; state.goals[i].cycleStart = cycleStart; state.goals[i].revision = (original.revision ?? 1) + 1
         }
     }
-    func archiveGoal(_ goal: LifeGoal) { _ = commit(kind: "goal.archive", id: goal.id) { state in if let i = state.goals.firstIndex(where: { $0.id == goal.id }) { state.goals[i].archived = true } } }
+    func archiveGoal(_ goal: LifeGoal) { _ = commit(kind: "goal.archive", id: goal.id) { state in if let i = state.goals.firstIndex(where: { $0.id == goal.id }) { state.goals[i].archived = true; state.goals[i].revision = (state.goals[i].revision ?? 1) + 1 } } }
     func rejectMeasurement(_ reading: LifeMeasurement) {
         _ = commit(kind: "measurement.reject", id: reading.id) { state in if let i = state.measurements.firstIndex(where: { $0.id == reading.id }) { state.measurements[i].rejectedAt = Date() } }
     }
     func addPeriodReview(_ review: PeriodReview) -> Bool { commit(kind: "period-review.create", id: review.id) { $0.periodReviews.insert(review, at: 0) } }
     func saveTrip(_ trip: LifeTrip) -> Bool {
         commit(kind: "trip.save", id: trip.id) { state in
-            if let i = state.trips.firstIndex(where: { $0.id == trip.id }) { var revised = trip; revised.revision += 1; state.trips[i] = revised }
+            if let i = state.trips.firstIndex(where: { $0.id == trip.id }) {
+                guard state.trips[i].revision == trip.revision else { throw LifeError.message("行程已更新，本页草稿已保留。") }
+                try state.audit(state.trips[i], id: trip.id, kind: "trip", revision: trip.revision)
+                var revised = trip; revised.revision += 1; state.trips[i] = revised
+            }
             else { state.trips.insert(trip, at: 0) }
         }
     }
@@ -97,13 +101,18 @@ extension LifeStore {
         var place = place
         place.title = place.title.trimmingCharacters(in: .whitespacesAndNewlines); place.city = place.city.trimmingCharacters(in: .whitespacesAndNewlines); place.country = place.country.trimmingCharacters(in: .whitespacesAndNewlines)
         return commit(kind: "known-place.save", id: place.id) { state in
-            if let i = state.knownPlaces.firstIndex(where: { $0.id == place.id }) { var revised = place; revised.revision += 1; state.knownPlaces[i] = revised }
+            if let i = state.knownPlaces.firstIndex(where: { $0.id == place.id }) {
+                guard state.knownPlaces[i].revision == place.revision else { throw LifeError.message("地点已更新，本页草稿已保留。") }
+                try state.audit(state.knownPlaces[i], id: place.id, kind: "known-place", revision: place.revision)
+                var revised = place; revised.revision += 1; state.knownPlaces[i] = revised
+            }
             else { state.knownPlaces.append(place) }
         }
     }
     func saveMemory(_ original: LifePlace, title: String, note: String, favorite: Bool, tripID: UUID?, people: [String], occurredAt: Date, knownPlaceID: UUID?) -> Bool {
         commit(kind: "memory.edit", id: original.id) { state in
-            guard let i = state.places.firstIndex(where: { $0.id == original.id }) else { throw LifeError.invalidReference }
+            guard let i = state.places.firstIndex(where: { $0.id == original.id }), state.places[i] == original else { throw LifeError.message("记忆已更新，本页草稿已保留。") }
+            try state.audit(state.places[i], id: original.id, kind: "memory", revision: Int64(state.amendments.filter { $0.entityID == original.id && $0.kind == "memory" }.count + 1))
             state.places[i].title = title; state.places[i].note = note; state.places[i].favorite = favorite
             state.places[i].tripID = tripID; state.places[i].people = people
             state.places[i].occurredAt = occurredAt; state.places[i].knownPlaceID = knownPlaceID

@@ -50,6 +50,7 @@ struct VisitDetailView: View {
     @State private var addPlace = false
     @State private var delete = false
     @State private var memoryID: UUID?
+    @State private var newMemory: LifePlace?
     var visit: LifeVisit? { store.data.visits.first { $0.id == visitID } }
     var body: some View {
         if let visit {
@@ -71,7 +72,7 @@ struct VisitDetailView: View {
                             if let saved = store.data.places.first(where: { $0.visitID == visit.id }) { memoryID = saved.id; return }
                             guard let occurred = visit.arrival ?? visit.departure else { store.error = "先核对一个已知时间，再创建记忆。"; return }
                             let memory = LifePlace(title: store.data.knownPlaces.first(where: { $0.id == visit.placeID })?.title ?? "一次到访", note: "", latitude: visit.latitude, longitude: visit.longitude, occurredAt: occurred, knownPlaceID: visit.placeID, visitID: visit.id)
-                            if store.addPlace(memory) { memoryID = memory.id }
+                            newMemory = memory
                         }
                     }
                     Button("删除这次到访", role: .destructive) { delete = true }
@@ -80,6 +81,7 @@ struct VisitDetailView: View {
             }.navigationTitle("核对到访").navigationBarTitleDisplayMode(.inline)
                 .onAppear { if !initialized { initialized = true; placeID = visit.placeID; knownArrival = visit.arrival != nil; knownDeparture = visit.departure != nil; arrival = visit.arrival ?? visit.receivedAt; departure = visit.departure ?? visit.receivedAt; note = visit.note; state = visit.state } }
                 .sheet(isPresented: $addPlace) { NavigationStack { KnownPlaceEditor(place: KnownPlace(title: "", latitude: visit.latitude, longitude: visit.longitude)) { placeID = $0 } } }
+                .sheet(item: $newMemory) { NewMemoryView(seed: $0, contextKey: "new-memory:" + visit.id.uuidString) }
                 .navigationDestination(item: $memoryID) { MemoryDetailView(memoryID: $0) }
                 .confirmationDialog("删除这次到访？", isPresented: $delete, titleVisibility: .visible) { Button("删除", role: .destructive) { store.deleteVisit(visit) }; Button("取消", role: .cancel) {} }
         } else { ContentUnavailableView("到访已删除", systemImage: "mappin.slash") }
@@ -106,18 +108,25 @@ struct KnownPlaceEditor: View {
     var saved: ((UUID) -> Void)? = nil
     @State private var delete = false
     @State private var composer: ComposerKind?
+    @State private var initialized = false
+    @State private var savedDraft = false
+    @State private var retainedKey: String?
     var exists: Bool { store.data.knownPlaces.contains { $0.id == place.id } }
     var body: some View {
         Form {
             Section { TextField("地点名称", text: $place.title); TextField("城市（由你核对，可留空）", text: $place.city); TextField("国家或地区（由你核对，可留空）", text: $place.country); Toggle("收藏", isOn: $place.favorite); Toggle("敏感地点", isOn: $place.isSensitive); LabeledContent("地域来源", value: "用户填写，未做自动行政区判断") }
+            if let current = store.data.knownPlaces.first(where: { $0.id == place.id }) { EditorConflictNotice(changed: current.revision != place.revision, current: current.title + "\n" + current.city + " · " + current.country) { place.revision = current.revision } }
             Section { Map { Marker(place.title, coordinate: CLLocationCoordinate2D(latitude: place.latitude, longitude: place.longitude)) }.frame(height: 230); Slider(value: $place.radius, in: 50...1000, step: 50) { Text("参考范围") }; Text("参考范围 \(Int(place.radius)) 米，仅辅助你核对，不自动合并到访。") .font(.caption).foregroundStyle(.secondary) }
             if exists { Section("已确认到访") { ForEach(store.data.visits.filter { $0.placeID == place.id && $0.state == "confirmed" }) { visit in NavigationLink { VisitDetailView(visitID: visit.id) } label: { VisitRow(visit: visit) } } }; Button("删除地点名称，保留原始到访", role: .destructive) { delete = true } }
             if exists { Section("下次再去") { Button("预览一件想做的事", systemImage: "checkmark.circle") { composer = .task }; Button("预览一个私人计划", systemImage: "calendar.badge.plus") { composer = .plan }; Text("打开后仍需你填写并保存；关闭草稿不会创建任务、计划、日历或到访。") .font(.caption).foregroundStyle(.secondary) } }
         }.navigationTitle(exists ? "地点详情" : "命名这个地方").navigationBarTitleDisplayMode(.inline)
-            .toolbar { Button("保存") { if store.saveKnownPlace(place) { saved?(place.id); dismiss() } }.disabled(place.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) }
+            .toolbar { Button("保存") { if store.saveKnownPlace(place) { savedDraft = true; EditorDrafts.remove(draftKey); saved?(place.id); dismiss() } }.disabled(place.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) }
+            .onAppear { if !initialized { initialized = true; retainedKey = draftKey; place = EditorDrafts.value(draftKey, as: KnownPlace.self) ?? place } }
+            .retainingDraft(draftKey, fields: EditorDrafts.fields(place), active: initialized && !savedDraft)
             .confirmationDialog("删除这个稳定地点？", isPresented: $delete, titleVisibility: .visible) { Button("删除", role: .destructive) { store.deleteKnownPlace(place); dismiss() }; Button("取消", role: .cancel) {} } message: { Text("到访与文字记忆保留，并解除地点关联；地域统计会重新计算。") }
             .sheet(item: $composer) { ComposerView(kind: $0, prefilledTitle: "下次再去：" + place.title, initialPlaceID: place.id) }
     }
+    var draftKey: String { retainedKey ?? (exists ? "known-place:" + place.id.uuidString : "new-known-place:" + LifeStore.fingerprint(Data((String(place.latitude) + ":" + String(place.longitude)).utf8))) }
 }
 
 struct MapHistoryView: View {

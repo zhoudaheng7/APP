@@ -102,6 +102,7 @@ struct LifePlace: Codable, Identifiable, Equatable {
     var tripID: UUID?
     var favorite: Bool?
     var people: [String]?
+    var timeZone: String? = TimeZone.current.identifier
 }
 
 struct RoutePoint: Codable, Equatable {
@@ -123,6 +124,8 @@ struct LifeRoute: Codable, Identifiable, Equatable {
     var tripID: UUID?
     var backgroundEnabled: Bool?
     var gaps: [RouteGap]?
+    var timeZone: String? = TimeZone.current.identifier
+    var purpose: String?
 }
 
 /// Internal durable pending-change journal. Not an exchange generation or wire DTO.

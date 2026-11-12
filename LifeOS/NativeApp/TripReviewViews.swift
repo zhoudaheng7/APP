@@ -8,13 +8,15 @@ struct NewTripView: View {
     @State private var start = Date()
     @State private var end = Date()
     @State private var note = ""
+    @State private var initialized = false
+    @State private var saved = false
     var body: some View {
         NavigationStack { Form {
             TextField("给这段行程一个名字", text: $title); DatePicker("开始", selection: $start); DatePicker("结束", selection: $end, in: start...); TextField("行程故事", text: $note, axis: .vertical).lineLimit(5...12)
             Text("保存后可逐条选择到访、路线、地点记忆和照片，不自动推断一次旅行。") .font(.caption).foregroundStyle(.secondary)
-        }.navigationTitle("新建行程").navigationBarTitleDisplayMode(.inline).toolbar { ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() } }; ToolbarItem(placement: .confirmationAction) { Button("保存") { if store.saveTrip(LifeTrip(title: title.trimmingCharacters(in: .whitespacesAndNewlines), start: start, end: end, note: note)) { EditorDrafts.remove("new-trip"); dismiss() } }.disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || end < start) } }
-            .onAppear { if let draft = EditorDrafts.load("new-trip") { title = draft["title"] ?? ""; note = draft["note"] ?? "" } }
-            .onDisappear { if !title.isEmpty && !store.data.trips.contains(where: { $0.title == title && $0.note == note }) { EditorDrafts.save("new-trip", fields: ["title": title, "note": note]) } }
+        }.navigationTitle("新建行程").navigationBarTitleDisplayMode(.inline).toolbar { ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() } }; ToolbarItem(placement: .confirmationAction) { Button("保存") { if store.saveTrip(LifeTrip(title: title.trimmingCharacters(in: .whitespacesAndNewlines), start: start, end: end, note: note)) { saved = true; EditorDrafts.remove("new-trip"); dismiss() } }.disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || end < start) } }
+            .onAppear { if !initialized { initialized = true; if let draft = EditorDrafts.load("new-trip") { title = draft["title"] ?? ""; note = draft["note"] ?? ""; if let value = draft["start"].flatMap(Double.init) { start = Date(timeIntervalSince1970:value) }; if let value = draft["end"].flatMap(Double.init) { end = Date(timeIntervalSince1970:value) } } } }
+            .retainingDraft("new-trip", fields: ["title":title,"note":note,"start":String(start.timeIntervalSince1970),"end":String(end.timeIntervalSince1970)], active: initialized && !saved)
         }
     }
 }
@@ -30,13 +32,15 @@ struct TripDetailView: View {
         Group {
             if let draft {
                 TripEditorContent(trip: Binding(get: { self.draft ?? draft }, set: { self.draft = $0 }), addPhoto: $addPhoto, delete: $delete)
-                    .toolbar { Button("保存") { if let draft = self.draft, store.saveTrip(draft) { self.draft = store.data.trips.first { $0.id == tripID } } }.disabled(draft.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || draft.end < draft.start) }
+                    .toolbar { Button("保存") { if let draft = self.draft, store.saveTrip(draft) { self.draft = store.data.trips.first { $0.id == tripID }; EditorDrafts.remove(draftKey) } }.disabled(draft.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || draft.end < draft.start) }
+                    .retainingDraft(draftKey, fields: EditorDrafts.fields(draft), active: store.data.trips.first(where: { $0.id == tripID }).map { $0 != draft } ?? false)
                     .confirmationDialog("删除这个行程？", isPresented: $delete, titleVisibility: .visible) { Button("删除行程", role: .destructive) { store.deleteTrip(draft); dismiss() }; Button("取消", role: .cancel) {} } message: { Text("到访、路线、照片和地点记忆保留，仅解除行程关联。") }
             } else { ProgressView() }
         }.navigationTitle("行程记忆").navigationBarTitleDisplayMode(.inline)
-            .onAppear { if draft == nil { draft = store.data.trips.first { $0.id == tripID } } }
+            .onAppear { if draft == nil { draft = EditorDrafts.value(draftKey, as: LifeTrip.self) ?? store.data.trips.first { $0.id == tripID } } }
             .sheet(isPresented: $addPhoto) { AddPhotoView(tripID: tripID) }
     }
+    var draftKey: String { "trip:" + tripID.uuidString }
 }
 
 struct TripEditorContent: View {
@@ -46,6 +50,7 @@ struct TripEditorContent: View {
     @Binding var delete: Bool
     var body: some View {
         Form {
+            if let current = store.data.trips.first(where: { $0.id == trip.id }) { EditorConflictNotice(changed: current.revision != trip.revision, current: current.title + "\n" + current.note + "\n" + current.start.formatted() + " — " + current.end.formatted()) { trip.revision = current.revision } }
             Section { TextField("行程名称", text: $trip.title); DatePicker("开始", selection: $trip.start); DatePicker("结束", selection: $trip.end, in: trip.start...); TextField("这段路上的故事", text: $trip.note, axis: .vertical).lineLimit(5...15); Toggle("收藏行程", isOn: $trip.favorite) }
             Section("选择关联到访") {
                 ForEach(store.data.visits.filter { $0.state == "confirmed" }) { visit in

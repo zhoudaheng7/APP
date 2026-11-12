@@ -39,6 +39,7 @@ import XCTest
         XCTAssertTrue(first.addTask(title: "跨版本保留", note: "本机", goalID: nil))
         let id = first.data.tasks[0].id
         let reopened = LifeStore(directory: parent)
+        defer { try? reopened.close(); try? first.close(); try? FileManager.default.removeItem(at: parent) }
         XCTAssertTrue(reopened.ready)
         XCTAssertEqual(reopened.data.tasks[0].id, id)
         XCTAssertEqual(reopened.data.tasks[0].title, "跨版本保留")

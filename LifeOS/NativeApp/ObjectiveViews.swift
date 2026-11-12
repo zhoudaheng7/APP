@@ -104,20 +104,32 @@ struct ObjectiveEditor: View {
     @State private var intention = ""
     @State private var assessment = ""
     @State private var due = Date()
+    @State private var cycleStart = Date()
+    @State private var hasCycleStart = false
+    @State private var captured: LifeGoal?
+    @State private var initialized = false
+    @State private var saved = false
+    var draftKey: String { "goal:" + original.id.uuidString }
+    var draftFields: [String:String] { guard let captured else { return [:] }; var value = captured; value.title = title; value.intention = intention; value.assessment = assessment; value.due = due; value.cycleStart = hasCycleStart ? cycleStart : nil; return EditorDrafts.fields(RecordDraft(original: captured, edited: value)) }
     var body: some View {
         NavigationStack { Form {
+            if let current = store.data.goals.first(where: { $0.id == original.id }) { EditorConflictNotice(changed: captured.map { $0 != current } ?? false, current: current.title + "\n" + current.intention + "\n" + current.due.formatted()) { captured = current } }
             TextField("方向", text: $title, axis: .vertical)
             TextField("为什么重要", text: $intention, axis: .vertical).lineLimit(3...8)
             DatePicker("周期截止", selection: $due, displayedComponents: .date)
+            Toggle("记录周期开始", isOn: $hasCycleStart)
+            if hasCycleStart { DatePicker("周期开始", selection: $cycleStart, in: ...due, displayedComponents: .date) }
             TextField("我的主观评估（可留空）", text: $assessment, axis: .vertical).lineLimit(3...8)
             Text("评估不自动修改成果读数。") .font(.caption).foregroundStyle(.secondary)
             Button(original.archived ? "恢复到方向列表" : "归档这个方向") {
-                if store.commit(kind: "goal.archive", id: original.id, { state in if let i = state.goals.firstIndex(where: { $0.id == original.id }) { state.goals[i].archived.toggle() } }) { dismiss() }
+                if store.commit(kind: "goal.archive", id: original.id, { state in if let i = state.goals.firstIndex(where: { $0.id == original.id }) { state.goals[i].archived.toggle(); state.goals[i].revision = (state.goals[i].revision ?? 1) + 1 } }) { dismiss() }
             }
         }.navigationTitle("编辑方向").navigationBarTitleDisplayMode(.inline).toolbar {
             ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() } }
-            ToolbarItem(placement: .confirmationAction) { Button("保存") { if store.editGoal(original, title: title.trimmingCharacters(in: .whitespacesAndNewlines), intention: intention, due: due, assessment: assessment) { dismiss() } }.disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) }
-        }.onAppear { title = original.title; intention = original.intention; due = original.due; assessment = original.assessment ?? "" } }
+            ToolbarItem(placement: .confirmationAction) { Button("保存") { if store.editGoal(captured ?? original, title: title.trimmingCharacters(in: .whitespacesAndNewlines), intention: intention, due: due, assessment: assessment, cycleStart: hasCycleStart ? cycleStart : nil) { saved = true; EditorDrafts.remove(draftKey); dismiss() } }.disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || (hasCycleStart && cycleStart > due)) }
+        }.onAppear { if !initialized { initialized = true; let draft = EditorDrafts.value(draftKey, as: RecordDraft<LifeGoal>.self); captured = draft?.original ?? original; let value = draft?.edited ?? original; title = value.title; intention = value.intention; due = value.due; assessment = value.assessment ?? ""; hasCycleStart = value.cycleStart != nil; cycleStart = value.cycleStart ?? min(Date(),due) } }
+            .retainingDraft(draftKey, fields: draftFields, active: initialized && !saved)
+        }
     }
 }
 
@@ -131,9 +143,15 @@ struct KeyResultEditor: View {
     @State private var target = ""
     @State private var unit = "次"
     @State private var weight = "1"
+    @State private var captured: LifeKeyResult?
+    @State private var initialized = false
+    @State private var saved = false
+    var draftKey: String { "kr:" + (original?.id.uuidString ?? "new:" + objectiveID.uuidString) }
+    var draftFields: [String:String] { ["title":title,"baseline":baseline,"target":target,"unit":unit,"weight":weight,"base":captured.flatMap { EditorDrafts.fields($0)["record"] } ?? ""] }
     var valid: Bool { !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !unit.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && decimalValue(baseline)?.isFinite == true && decimalValue(target)?.isFinite == true && decimalValue(baseline) != decimalValue(target) && (1...10).contains(decimalValue(weight) ?? 0) }
     var body: some View {
         NavigationStack { Form {
+            if let captured, let current = store.data.keyResults.first(where: { $0.id == captured.id }) { EditorConflictNotice(changed: captured != current, current: current.title + "\n" + current.baseline.formatted() + " → " + current.target.formatted() + " " + current.unit) { self.captured = current } }
             TextField("关键结果", text: $title, axis: .vertical).accessibilityIdentifier("krTitle")
             TextField("起点", text: $baseline).keyboardType(.numbersAndPunctuation)
             TextField("目标值", text: $target).keyboardType(.numbersAndPunctuation).accessibilityIdentifier("krTarget")
@@ -144,11 +162,13 @@ struct KeyResultEditor: View {
             ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() } }
             ToolbarItem(placement: .confirmationAction) { Button("保存") {
                 guard valid else { return }; let success: Bool
-                if let original { success = store.editKeyResult(original, title: title, baseline: decimalValue(baseline)!, target: decimalValue(target)!, unit: unit, weight: decimalValue(weight)!) }
+                if let original = captured ?? original { success = store.editKeyResult(original, title: title, baseline: decimalValue(baseline)!, target: decimalValue(target)!, unit: unit, weight: decimalValue(weight)!) }
                 else { success = store.addKeyResult(LifeKeyResult(objectiveID: objectiveID, title: title, baseline: decimalValue(baseline)!, target: decimalValue(target)!, unit: unit, weight: decimalValue(weight)!)) }
-                if success { dismiss() }
+                if success { saved = true; EditorDrafts.remove(draftKey); dismiss() }
             }.disabled(!valid) }
-        }.onAppear { if let original { title = original.title; baseline = original.baseline.formatted(); target = original.target.formatted(); unit = original.unit; weight = original.weight.formatted() } } }
+        }.onAppear { if !initialized { initialized = true; captured = original; if let original { title = original.title; baseline = original.baseline.formatted(); target = original.target.formatted(); unit = original.unit; weight = original.weight.formatted() }; if let draft = EditorDrafts.load(draftKey) { title = draft["title"] ?? title; baseline = draft["baseline"] ?? baseline; target = draft["target"] ?? target; unit = draft["unit"] ?? unit; weight = draft["weight"] ?? weight; if let text = draft["base"], !text.isEmpty { captured = (try? JSONDecoder().decode(LifeKeyResult.self, from: Data(text.utf8))) ?? captured } } } }
+            .retainingDraft(draftKey, fields: draftFields, active: initialized && !saved)
+        }
     }
 }
 
@@ -195,13 +215,18 @@ struct MeasurementEditor: View {
     @State private var value = ""
     @State private var note = ""
     @State private var observedAt = Date()
+    @State private var initialized = false
+    @State private var saved = false
+    var draftKey: String { "measurement:" + result.id.uuidString }
     var body: some View {
         NavigationStack { Form {
             Section { Text(result.title).font(.headline); TextField("当前累计值（\(result.unit)）", text: $value).keyboardType(.numbersAndPunctuation).accessibilityIdentifier("measurementValue"); DatePicker("实际发生时间", selection: $observedAt, in: ...Date()); TextField("成果依据或说明", text: $note, axis: .vertical).lineLimit(4...8) }
             Section { Text("可以补录历史读数。当前值优先按发生时间选择，再按录入时间和稳定身份决定，不累加读数。") .foregroundStyle(.secondary) }
         }.navigationTitle("记录成果").navigationBarTitleDisplayMode(.inline).toolbar {
             ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() } }
-            ToolbarItem(placement: .confirmationAction) { Button("保存") { if let number = decimalValue(value), number.isFinite { var reading = LifeMeasurement(goalID: result.objectiveID, value: number, note: note); reading.keyResultID = result.id; reading.observedAt = observedAt; if store.addMeasurement(reading) { dismiss() } } }.disabled(decimalValue(value)?.isFinite != true).accessibilityIdentifier("saveMeasurement") }
-        } }
+            ToolbarItem(placement: .confirmationAction) { Button("保存") { if let number = decimalValue(value), number.isFinite { var reading = LifeMeasurement(goalID: result.objectiveID, value: number, note: note); reading.keyResultID = result.id; reading.observedAt = observedAt; if store.addMeasurement(reading) { saved = true; EditorDrafts.remove(draftKey); dismiss() } } }.disabled(decimalValue(value)?.isFinite != true).accessibilityIdentifier("saveMeasurement") }
+        }.onAppear { if !initialized { initialized = true; if let draft = EditorDrafts.load(draftKey) { value = draft["value"] ?? ""; note = draft["note"] ?? ""; if let number = draft["observedAt"].flatMap(Double.init) { observedAt = Date(timeIntervalSince1970:number) } } } }
+            .retainingDraft(draftKey, fields: ["value":value,"note":note,"observedAt":String(observedAt.timeIntervalSince1970)], active: initialized && !saved)
+        }
     }
 }

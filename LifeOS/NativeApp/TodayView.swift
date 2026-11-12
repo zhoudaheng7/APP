@@ -5,6 +5,7 @@ struct TodayView: View {
     @State private var day = Date()
     @State private var composer: ComposerKind?
     @State private var settings = false
+    @State private var manualActual = false
     init(day: Date = Date()) { _day = State(initialValue: day) }
     var openTasks: [LifeTask] { store.data.tasks.filter(\.isOpen).sorted { ($0.priority ?? 0) > ($1.priority ?? 0) } }
     var sessions: [LifeSession] { store.data.sessions.filter { overlapsDay($0.start, $0.end ?? Date(), day: day, zone: TimeZone(identifier: $0.timeZone) ?? .current) }.sorted { $0.start < $1.start } }
@@ -25,9 +26,10 @@ struct TodayView: View {
                     }
                     HStack(spacing: 24) {
                         metric("已完成", "\(store.data.tasks.filter { $0.completedAt.map { Calendar.current.isDate($0, inSameDayAs: day) } ?? false }.count)")
-                        metric("已确认投入", minutesText(store.data.unionActualSeconds(from: Calendar.current.startOfDay(for: day), to: Calendar.current.date(byAdding: .day, value: 1, to: Calendar.current.startOfDay(for: day))!)))
+                        metric("已确认投入", minutesText(store.data.unionAttributedActualSeconds(day:day)))
                     }
                     DatePicker("选择回看日期", selection: $day, displayedComponents: .date)
+                    Text("计划和实际按各自保存的归属时区归日，跨日部分分别展示；投入取这些片段的并集。") .font(.caption).foregroundStyle(.secondary)
                     HStack {
                         Button { shiftDay(-1) } label: { Image(systemName: "chevron.left") }.accessibilityLabel("前一天")
                         Spacer()
@@ -98,6 +100,7 @@ struct TodayView: View {
             }
 
             Section("实际发生") {
+                Button("补录一段实际投入", systemImage: "clock.badge.plus") { manualActual = true }
                 if sessions.isEmpty { Text("开始计时，留下真实投入。") .foregroundStyle(.secondary) }
                 ForEach(sessions) { session in
                     NavigationLink { SessionEditor(sessionID: session.id) } label: { VStack(alignment: .leading, spacing: 7) {
@@ -142,6 +145,7 @@ struct TodayView: View {
         }
         .sheet(item: $composer) { ComposerView(kind: $0) }
         .sheet(isPresented: $settings) { NavigationStack { SettingsView() } }
+        .sheet(isPresented: $manualActual) { ManualActualView() }
     }
     func metric(_ title: String, _ value: String) -> some View { VStack(alignment: .leading, spacing: 3) { Text(value).font(.title3.bold()); Text(title).font(.caption).foregroundStyle(.secondary) } }
     func shiftDay(_ amount: Int) { day = Calendar.current.date(byAdding: .day, value: amount, to: day) ?? day }

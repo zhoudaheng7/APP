@@ -2,6 +2,7 @@ import XCTest
 import CoreData
 import UIKit
 import ImageIO
+import UniformTypeIdentifiers
 @testable import LifeOS
 
 @MainActor final class V2StoreTests: XCTestCase {
@@ -92,7 +93,6 @@ import ImageIO
     }
     func testPhotoSnapshotAndBlobAreAtomicAndReopenAsOneStore() throws {
         let parent=try temporaryDirectory(),store=LifeStore(directory:parent),image=try preparedPhoto()
-        if let source=CGImageSourceCreateWithData(image.data as CFData,nil), let props=CGImageSourceCopyPropertiesAtIndex(source,0,nil) { print("SYNTHETIC_IMAGE_PROPERTIES",props) }
         XCTAssertTrue(PhotoProcessor.isSanitizedJPEG(image.data,width:image.width,height:image.height))
         let photo=LifePhoto(caption:"示例照片",capturedAt:Date(),sha256:LifeStore.fingerprint(image.data),width:image.width,height:image.height,bytes:image.data.count)
         let before=store.data.pendingChanges.count
@@ -109,6 +109,38 @@ import ImageIO
         var damaged=LifeBackup(snapshot:store.data,media:[:]);damaged.format="unknown"
         let encoder=JSONEncoder();encoder.dateEncodingStrategy = .millisecondsSince1970
         XCTAssertThrowsError(try LifeStore.decodeBackup(encoder.encode(damaged)));XCTAssertEqual(store.data.tasks[0].title,"示例原任务")
+    }
+    func testPhotoProcessingRemovesPrivateMetadataAndBackupRejectsItsReintroduction() throws {
+        let image = try preparedPhoto(), output = NSMutableData()
+        let source = try XCTUnwrap(CGImageSourceCreateWithData(image.data as CFData,nil))
+        let target = try XCTUnwrap(CGImageDestinationCreateWithData(output,UTType.jpeg.identifier as CFString,1,nil))
+        CGImageDestinationAddImageFromSource(target,source,0,[kCGImagePropertyExifDictionary:[kCGImagePropertyExifDateTimeOriginal:"2001:02:03 04:05:06"],kCGImagePropertyGPSDictionary:[kCGImagePropertyGPSLatitude:12.34,kCGImagePropertyGPSLatitudeRef:"N"]] as CFDictionary)
+        XCTAssertTrue(CGImageDestinationFinalize(target))
+        XCTAssertFalse(PhotoProcessor.isSanitizedJPEG(output as Data,width:image.width,height:image.height))
+        let cleaned = try PhotoProcessor.prepare(output as Data)
+        XCTAssertTrue(PhotoProcessor.isSanitizedJPEG(cleaned.data,width:cleaned.width,height:cleaned.height))
+        let store = LifeStore(inMemory:true), descriptor = LifePhoto(caption:"恶意元数据合成样例",capturedAt:Date(),sha256:LifeStore.fingerprint(output as Data),width:image.width,height:image.height,bytes:output.length)
+        var snapshot = store.data; snapshot.photos = [descriptor]
+        let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .millisecondsSince1970
+        XCTAssertThrowsError(try LifeStore.decodeBackup(encoder.encode(LifeBackup(snapshot:snapshot,media:[descriptor.id.uuidString:output as Data]))))
+    }
+    func testStaleEditorsCannotOverwriteOrReviveRecords() throws {
+        let store = LifeStore(inMemory:true), place = KnownPlace(title:"示例地点",latitude:1,longitude:1), trip = LifeTrip(title:"示例行程",start:Date(),end:Date())
+        XCTAssertTrue(store.saveKnownPlace(place)); var changed = place; changed.city = "示例城市"; XCTAssertTrue(store.saveKnownPlace(changed)); XCTAssertFalse(store.saveKnownPlace(place)); XCTAssertEqual(store.data.knownPlaces.first?.city,"示例城市")
+        store.deleteKnownPlace(try XCTUnwrap(store.data.knownPlaces.first)); XCTAssertFalse(store.saveKnownPlace(place)); XCTAssertTrue(store.data.knownPlaces.isEmpty)
+        XCTAssertTrue(store.saveTrip(trip)); var newer = trip; newer.note = "新版内容"; XCTAssertTrue(store.saveTrip(newer)); XCTAssertFalse(store.saveTrip(trip)); XCTAssertEqual(store.data.trips.first?.note,"新版内容")
+        let goal = LifeGoal(title:"示例方向",intention:"",target:10,unit:"本",due:Date()); XCTAssertTrue(store.addGoal(goal))
+        XCTAssertTrue(store.editGoal(goal,title:"新方向",intention:"",due:goal.due,assessment:"")); XCTAssertFalse(store.editGoal(goal,title:"旧版覆盖",intention:"",due:goal.due,assessment:"")); XCTAssertEqual(store.data.goals.first?.title,"新方向")
+    }
+    func testSplittingAndMergingActualsPreservesUnionAndRejectsFillingGaps() throws {
+        let store = LifeStore(inMemory:true), start = Date(timeIntervalSince1970:10000), original = LifeSession(title:"示例投入",start:start,end:start.addingTimeInterval(3600),confirmed:true)
+        XCTAssertTrue(store.addClosedSession(original)); XCTAssertTrue(store.splitSession(original,at:start.addingTimeInterval(1800))); XCTAssertEqual(store.data.sessions.count,2)
+        XCTAssertEqual(store.data.unionActualSeconds(from:start,to:start.addingTimeInterval(7200)),3600)
+        XCTAssertTrue(store.data.tombstones.contains { $0.id == original.id && $0.kind == "actual" })
+        let first = store.data.sessions[0],second = store.data.sessions[1]
+        XCTAssertTrue(store.mergeSessions(first,second)); XCTAssertEqual(store.data.sessions.count,1)
+        var separated = original; separated.id = UUID(); separated.start = start.addingTimeInterval(4000); separated.end = start.addingTimeInterval(5000)
+        XCTAssertTrue(store.addClosedSession(separated)); XCTAssertFalse(store.mergeSessions(try XCTUnwrap(store.data.sessions.first),separated)); XCTAssertEqual(store.data.sessions.count,2)
     }
     func testMalformedPhotoByteCountsThrowWithoutOverflow() {
         var state=LifeSnapshot()
