@@ -23,11 +23,13 @@ def read_store(container):
     with closing(sqlite3.connect(database.as_uri() + "?mode=ro", uri=True)) as connection:
         connection.execute("PRAGMA query_only=ON")
         connection.execute("BEGIN")
-        metadata_rows = connection.execute("SELECT Z_PLIST FROM Z_METADATA").fetchall()
+        metadata_rows = connection.execute("SELECT Z_UUID, Z_PLIST FROM Z_METADATA").fetchall()
         assert len(metadata_rows) == 1, "Ambiguous Core Data metadata"
-        metadata = plistlib.loads(bytes(metadata_rows[0][0]))
+        metadata = plistlib.loads(bytes(metadata_rows[0][1]))
         assert metadata.get("NSStoreType") == "SQLite"
-        store_uuid = str(uuid.UUID(metadata["NSStoreUUID"]))
+        store_uuid = str(uuid.UUID(metadata_rows[0][0]))
+        if "NSStoreUUID" in metadata:
+            assert str(uuid.UUID(metadata["NSStoreUUID"])) == store_uuid, "Conflicting store identity metadata"
         rows = connection.execute(
             "SELECT Z_PK, ZPAYLOAD FROM ZLIFEOSSNAPSHOT WHERE ZKEY = ?", ("current",)
         ).fetchall()
